@@ -1,0 +1,29 @@
+# Nested, independently version-controlled repositories (own git history, not tracked here)
+/xd-decomp/
+/Pokemon-XD-Code/
+
+# Python virtual environment (regenerable, platform-specific)
+/Companion/.venv/
+
+# Raw emulated-memory snapshots (may contain substantial copyrighted game data; local-only per FIRST_VERTICAL_SLICE.md)
+/Companion/_phase0_scratch_snapshots/
+/Companion/logs/
+
+# Game images / disc dumps -- never tracked, regardless of location
+*.iso
+*.rvz
+*.wbfs
+*.gcz
+*.wia
+*.ciso
+*.nfs
+*.tgc
+*.gci
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS cruft
+Thumbs.db
+.DS_Store
