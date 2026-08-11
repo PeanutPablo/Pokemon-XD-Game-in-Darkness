@@ -1,13 +1,14 @@
 # UNKNOWNS_AND_BLOCKERS.md
 
-## Current bounded blockers and unknowns
+## Current bounded blockers and unknowns — 2026-07-25
 
-- **Blocker:** Dolphin is presently closed. Phase 0C needs a running verified vanilla-XD session at a stable menu before a screenshot and controlled read-only snapshots can be taken.
-- **Unknown:** exact battle-command labels/count in the opening battle until the Dolphin screen is captured and inspected.
-- **Unknown:** menu highlighted-index address or pointer chain, field width, value normalization, allocation lifetime, and restart stability.
-- **Unknown:** owner and duplication reason for HP candidates `0x804454B4`/`0x804454BC`; stable maximum HP and opponent Metagross HP were not found.
-- **Unknown:** every XG address, structure layout, and compatibility claim. XG has not been patched or launched.
-- **Not blocked:** build verification, companion dependencies, NVDA/Tolk diagnostic, and prior read-only Dolphin attachment are already Confirmed.
+- **Completed:** Phase 1F production regression confirmed ordinary Earthquake damage and indirect poison damage through the same settled HP-loss pipeline.
+- **Unknown:** every Pokémon XG address, structure layout, and compatibility claim. XG has not been validated, and the working production profile deliberately accepts only vanilla `GXXE01` revision 0.
+- **Out of current scope:** target-selection narration, healing speech, additional event-specific health fields, forced poison/critical-hit testing, and generalized message-opcode interpretation.
+- **Rejected:** `0x804454B4` and `0x804454BC` are not production HP hooks. Stable health narration now uses the verified FightFloor battler chain plus dynamically reconstructed status windows documented in [PHASE_1F_HEALTH_NARRATION.md](PHASE_1F_HEALTH_NARRATION.md).
+- **Resolved since the original audit:** read-only Dolphin attachment, NVDA/Tolk output, persistent lifecycle handling, GSmsg battle narration, command-menu focus, move-menu focus, move/type/PP resolution, and generic production health integration.
+
+The older sections below are retained as a historical audit. Statements that the companion, dependencies, Dolphin, menu hooks, GSmsg source, or vanilla HP chain do not exist are superseded by this checkpoint and the current [INDEX.md](INDEX.md).
 
 Everything this investigation could not resolve, organized by what would resolve it. If you only read one section before deciding what to do next, read "Blockers that require your XG game files" — that's the actual critical path.
 
@@ -38,7 +39,7 @@ Everything this investigation could not resolve, organized by what would resolve
 ## What was explicitly not investigated (per your scope limits, not because it's blocked)
 
 - Overworld navigation / player movement narration.
-- Any production accessibility code.
+- Production accessibility code was outside the original audit scope; it now exists and is documented in the current index and phase records.
 - Any ISO modification, ISO download, or use of a prepatched game.
 - Dolphin cloning, building, or patching.
 - Full-game implementation of any kind.

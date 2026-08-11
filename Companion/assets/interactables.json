@@ -1,0 +1,1689 @@
+{
+  "111": {
+    "class": null,
+    "handler": "talk_131_beedy",
+    "method": 3,
+    "region": 4,
+    "room": 122
+  },
+  "113": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 118
+  },
+  "114": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 2,
+    "room": 118
+  },
+  "121": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 1,
+    "room": 115
+  },
+  "138": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 1,
+    "room": 108
+  },
+  "151": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 1,
+    "room": 109
+  },
+  "169": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 4,
+    "room": 110
+  },
+  "171": {
+    "class": "healing",
+    "handler": "recover",
+    "method": 3,
+    "region": 12,
+    "room": 110
+  },
+  "173": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 6,
+    "room": 111
+  },
+  "176": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 3,
+    "room": 111
+  },
+  "181": {
+    "class": "healing",
+    "handler": "recovery_m2_enter_1f",
+    "method": 3,
+    "region": 1,
+    "room": 113
+  },
+  "183": {
+    "class": null,
+    "handler": "info_reception_talk",
+    "method": 3,
+    "region": 3,
+    "room": 113
+  },
+  "199": {
+    "class": null,
+    "handler": "talk_112_ojisan2",
+    "method": 2,
+    "region": 9,
+    "room": 132
+  },
+  "202": {
+    "class": null,
+    "handler": "call_baba1",
+    "method": 2,
+    "region": 2,
+    "room": 125
+  },
+  "203": {
+    "class": null,
+    "handler": "call_gym_f",
+    "method": 2,
+    "region": 3,
+    "room": 125
+  },
+  "206": {
+    "class": "shrine",
+    "handler": "check_shrine",
+    "method": 3,
+    "region": 1,
+    "room": 135
+  },
+  "210": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 1,
+    "room": 128
+  },
+  "216": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 2,
+    "room": 129
+  },
+  "219": {
+    "class": null,
+    "handler": "talk_128_logan",
+    "method": 3,
+    "region": 5,
+    "room": 129
+  },
+  "22": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 1,
+    "room": 96
+  },
+  "220": {
+    "class": null,
+    "handler": "talk_119_setsuma",
+    "method": 3,
+    "region": 6,
+    "room": 129
+  },
+  "223": {
+    "class": "bed",
+    "handler": "bed_de_kaihuku",
+    "method": 3,
+    "region": 2,
+    "room": 130
+  },
+  "232": {
+    "class": null,
+    "handler": "check_door",
+    "method": 2,
+    "region": 0,
+    "room": 11
+  },
+  "233": {
+    "class": null,
+    "handler": "check_door",
+    "method": 2,
+    "region": 5,
+    "room": 11
+  },
+  "239": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 1,
+    "room": 7
+  },
+  "24": {
+    "class": null,
+    "handler": "serch_bookshelf",
+    "method": 3,
+    "region": 4,
+    "room": 96
+  },
+  "241": {
+    "class": null,
+    "handler": "center_elevator_open",
+    "method": 2,
+    "region": 4,
+    "room": 8
+  },
+  "242": {
+    "class": null,
+    "handler": "leftup_elevator_open",
+    "method": 2,
+    "region": 5,
+    "room": 8
+  },
+  "246": {
+    "class": null,
+    "handler": "talk_noget_datarom",
+    "method": 2,
+    "region": 10,
+    "room": 8
+  },
+  "25": {
+    "class": null,
+    "handler": "rinto_call_back",
+    "method": 2,
+    "region": 0,
+    "room": 96
+  },
+  "250": {
+    "class": null,
+    "handler": "auto_door_check",
+    "method": 3,
+    "region": 9,
+    "room": 8
+  },
+  "252": {
+    "class": null,
+    "handler": "auto_door",
+    "method": 2,
+    "region": 3,
+    "room": 8
+  },
+  "253": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 12,
+    "room": 8
+  },
+  "26": {
+    "class": null,
+    "handler": "sound_change",
+    "method": 3,
+    "region": 2,
+    "room": 96
+  },
+  "28": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 97
+  },
+  "289": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 32
+  },
+  "290": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 4,
+    "room": 32
+  },
+  "291": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 5,
+    "room": 32
+  },
+  "292": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 6,
+    "room": 32
+  },
+  "293": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 7,
+    "room": 32
+  },
+  "294": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 8,
+    "room": 32
+  },
+  "295": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 9,
+    "room": 32
+  },
+  "296": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 10,
+    "room": 32
+  },
+  "297": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 11,
+    "room": 32
+  },
+  "298": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 3,
+    "room": 32
+  },
+  "299": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 33
+  },
+  "3": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 1,
+    "room": 164
+  },
+  "30": {
+    "class": null,
+    "handler": "ev_sound_soft",
+    "method": 3,
+    "region": 2,
+    "room": 98
+  },
+  "300": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 33
+  },
+  "301": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 33
+  },
+  "302": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 33
+  },
+  "303": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 33
+  },
+  "304": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 33
+  },
+  "305": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 33
+  },
+  "306": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 33
+  },
+  "307": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 33
+  },
+  "308": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 33
+  },
+  "309": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 34
+  },
+  "31": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 3,
+    "room": 98
+  },
+  "310": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 34
+  },
+  "311": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 34
+  },
+  "312": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 34
+  },
+  "313": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 34
+  },
+  "314": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 34
+  },
+  "315": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 34
+  },
+  "316": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 34
+  },
+  "317": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 34
+  },
+  "318": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 34
+  },
+  "319": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 17
+  },
+  "32": {
+    "class": "bed",
+    "handler": "ev_bed",
+    "method": 3,
+    "region": 0,
+    "room": 98
+  },
+  "320": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 17
+  },
+  "321": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 17
+  },
+  "322": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 17
+  },
+  "323": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 17
+  },
+  "324": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 17
+  },
+  "325": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 17
+  },
+  "326": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 17
+  },
+  "327": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 17
+  },
+  "328": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 17
+  },
+  "329": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 18
+  },
+  "33": {
+    "class": "bed",
+    "handler": "ev_bed",
+    "method": 3,
+    "region": 1,
+    "room": 98
+  },
+  "330": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 18
+  },
+  "331": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 18
+  },
+  "332": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 18
+  },
+  "333": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 18
+  },
+  "334": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 18
+  },
+  "335": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 18
+  },
+  "336": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 18
+  },
+  "337": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 18
+  },
+  "338": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 18
+  },
+  "339": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 19
+  },
+  "340": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 19
+  },
+  "341": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 19
+  },
+  "342": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 19
+  },
+  "343": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 19
+  },
+  "344": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 19
+  },
+  "345": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 19
+  },
+  "346": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 19
+  },
+  "347": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 19
+  },
+  "348": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 19
+  },
+  "349": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 12
+  },
+  "35": {
+    "class": null,
+    "handler": "serch_bookshelf",
+    "method": 3,
+    "region": 1,
+    "room": 99
+  },
+  "350": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 12
+  },
+  "351": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 12
+  },
+  "352": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 12
+  },
+  "353": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 12
+  },
+  "354": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 12
+  },
+  "355": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 12
+  },
+  "356": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 12
+  },
+  "357": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 12
+  },
+  "358": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 12
+  },
+  "359": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 13
+  },
+  "36": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 99
+  },
+  "360": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 13
+  },
+  "361": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 13
+  },
+  "362": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 13
+  },
+  "363": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 13
+  },
+  "364": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 13
+  },
+  "365": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 13
+  },
+  "366": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 13
+  },
+  "367": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 13
+  },
+  "368": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 13
+  },
+  "369": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 14
+  },
+  "370": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 14
+  },
+  "371": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 14
+  },
+  "372": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 14
+  },
+  "373": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 14
+  },
+  "374": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 14
+  },
+  "375": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 14
+  },
+  "376": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 14
+  },
+  "377": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 14
+  },
+  "378": {
+    "class": null,
+    "handler": "booth_battle_10",
+    "method": 1,
+    "region": 11,
+    "room": 14
+  },
+  "379": {
+    "class": null,
+    "handler": "booth_battle_1",
+    "method": 1,
+    "region": 2,
+    "room": 15
+  },
+  "380": {
+    "class": null,
+    "handler": "booth_battle_2",
+    "method": 1,
+    "region": 3,
+    "room": 15
+  },
+  "381": {
+    "class": null,
+    "handler": "booth_battle_3",
+    "method": 1,
+    "region": 4,
+    "room": 15
+  },
+  "382": {
+    "class": null,
+    "handler": "booth_battle_4",
+    "method": 1,
+    "region": 5,
+    "room": 15
+  },
+  "383": {
+    "class": null,
+    "handler": "booth_battle_5",
+    "method": 1,
+    "region": 6,
+    "room": 15
+  },
+  "384": {
+    "class": null,
+    "handler": "booth_battle_6",
+    "method": 1,
+    "region": 7,
+    "room": 15
+  },
+  "385": {
+    "class": null,
+    "handler": "booth_battle_7",
+    "method": 1,
+    "region": 8,
+    "room": 15
+  },
+  "386": {
+    "class": null,
+    "handler": "booth_battle_8",
+    "method": 1,
+    "region": 9,
+    "room": 15
+  },
+  "387": {
+    "class": null,
+    "handler": "booth_battle_9",
+    "method": 1,
+    "region": 10,
+    "room": 15
+  },
+  "392": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 33
+  },
+  "399": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 34
+  },
+  "406": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 17
+  },
+  "413": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 18
+  },
+  "420": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 19
+  },
+  "427": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 12
+  },
+  "434": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 13
+  },
+  "441": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 14
+  },
+  "448": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 15
+  },
+  "450": {
+    "class": null,
+    "handler": "uketuke_warp",
+    "method": 2,
+    "region": 0,
+    "room": 16
+  },
+  "478": {
+    "class": "healing",
+    "handler": "recovery_d5_factory_2f",
+    "method": 3,
+    "region": 4,
+    "room": 65
+  },
+  "504": {
+    "class": null,
+    "handler": "ev_factory_stop_1",
+    "method": 3,
+    "region": 3,
+    "room": 70
+  },
+  "526": {
+    "class": "healing",
+    "handler": "recovery_s2_building_1f_2",
+    "method": 3,
+    "region": 12,
+    "room": 165
+  },
+  "53": {
+    "class": null,
+    "handler": "white_board_check",
+    "method": 3,
+    "region": 1,
+    "room": 94
+  },
+  "54": {
+    "class": null,
+    "handler": "key_check",
+    "method": 3,
+    "region": 7,
+    "room": 94
+  },
+  "555": {
+    "class": "bed",
+    "handler": "bed_recovery",
+    "method": 3,
+    "region": 1,
+    "room": 42
+  },
+  "564": {
+    "class": null,
+    "handler": "floor_link_m6_out",
+    "method": 3,
+    "region": 5,
+    "room": 88
+  },
+  "594": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 10,
+    "room": 76
+  },
+  "599": {
+    "class": null,
+    "handler": "fall_box",
+    "method": 2,
+    "region": 0,
+    "room": 77
+  },
+  "600": {
+    "class": null,
+    "handler": "fall_box",
+    "method": 2,
+    "region": 1,
+    "room": 77
+  },
+  "601": {
+    "class": null,
+    "handler": "fall_box",
+    "method": 2,
+    "region": 2,
+    "room": 77
+  },
+  "602": {
+    "class": null,
+    "handler": "fall_box",
+    "method": 2,
+    "region": 3,
+    "room": 77
+  },
+  "603": {
+    "class": null,
+    "handler": "hot_not_approach",
+    "method": 2,
+    "region": 6,
+    "room": 77
+  },
+  "604": {
+    "class": null,
+    "handler": "hot_not_approach",
+    "method": 2,
+    "region": 8,
+    "room": 77
+  },
+  "605": {
+    "class": null,
+    "handler": "hot_not_approach",
+    "method": 2,
+    "region": 7,
+    "room": 77
+  },
+  "608": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 2,
+    "room": 78
+  },
+  "627": {
+    "class": null,
+    "handler": "crane_move_aa",
+    "method": 3,
+    "region": 2,
+    "room": 83
+  },
+  "628": {
+    "class": null,
+    "handler": "crane_move_ab",
+    "method": 3,
+    "region": 3,
+    "room": 83
+  },
+  "629": {
+    "class": null,
+    "handler": "crane_move_ba",
+    "method": 3,
+    "region": 4,
+    "room": 83
+  },
+  "630": {
+    "class": null,
+    "handler": "crane_move_bb",
+    "method": 3,
+    "region": 5,
+    "room": 83
+  },
+  "631": {
+    "class": null,
+    "handler": "crane_move_ca",
+    "method": 3,
+    "region": 6,
+    "room": 83
+  },
+  "632": {
+    "class": null,
+    "handler": "crane_move_cb",
+    "method": 3,
+    "region": 7,
+    "room": 83
+  },
+  "633": {
+    "class": null,
+    "handler": "crane_move_da",
+    "method": 3,
+    "region": 8,
+    "room": 83
+  },
+  "634": {
+    "class": null,
+    "handler": "crane_move_db",
+    "method": 3,
+    "region": 9,
+    "room": 83
+  },
+  "635": {
+    "class": null,
+    "handler": "crane_move_ea",
+    "method": 3,
+    "region": 10,
+    "room": 83
+  },
+  "636": {
+    "class": null,
+    "handler": "crane_move_eb",
+    "method": 3,
+    "region": 11,
+    "room": 83
+  },
+  "637": {
+    "class": null,
+    "handler": "crane_move_fa",
+    "method": 3,
+    "region": 12,
+    "room": 83
+  },
+  "638": {
+    "class": null,
+    "handler": "crane_move_fb",
+    "method": 3,
+    "region": 13,
+    "room": 83
+  },
+  "641": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 2,
+    "room": 84
+  },
+  "642": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 3,
+    "room": 84
+  },
+  "643": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 4,
+    "room": 84
+  },
+  "644": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 5,
+    "room": 84
+  },
+  "645": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 6,
+    "room": 84
+  },
+  "646": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 7,
+    "room": 84
+  },
+  "647": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 8,
+    "room": 84
+  },
+  "648": {
+    "class": "fall",
+    "handler": "hero_fall",
+    "method": 1,
+    "region": 9,
+    "room": 84
+  },
+  "656": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 6,
+    "room": 73
+  },
+  "671": {
+    "class": "bed",
+    "handler": "check_mana_bed",
+    "method": 3,
+    "region": 8,
+    "room": 138
+  },
+  "672": {
+    "class": null,
+    "handler": "check_bookshelf",
+    "method": 3,
+    "region": 0,
+    "room": 138
+  },
+  "674": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 8,
+    "room": 139
+  },
+  "676": {
+    "class": null,
+    "handler": "open_klein_door",
+    "method": 2,
+    "region": 3,
+    "room": 139
+  },
+  "682": {
+    "class": null,
+    "handler": "check_klein_door",
+    "method": 3,
+    "region": 1,
+    "room": 139
+  },
+  "683": {
+    "class": null,
+    "handler": "check_kakureon",
+    "method": 3,
+    "region": 2,
+    "room": 139
+  },
+  "689": {
+    "class": null,
+    "handler": "under_door",
+    "method": 2,
+    "region": 9,
+    "room": 140
+  },
+  "690": {
+    "class": null,
+    "handler": "check_snatchmachine",
+    "method": 3,
+    "region": 3,
+    "room": 140
+  },
+  "694": {
+    "class": "healing",
+    "handler": "tako_machine",
+    "method": 3,
+    "region": 4,
+    "room": 140
+  },
+  "696": {
+    "class": null,
+    "handler": "talk_103_info",
+    "method": 3,
+    "region": 0,
+    "room": 140
+  },
+  "703": {
+    "class": null,
+    "handler": "check_white_board",
+    "method": 3,
+    "region": 11,
+    "room": 141
+  },
+  "713": {
+    "class": null,
+    "handler": "labo_door_open",
+    "method": 2,
+    "region": 0,
+    "room": 143
+  },
+  "715": {
+    "class": null,
+    "handler": "apart_door_open",
+    "method": 2,
+    "region": 1,
+    "room": 143
+  },
+  "718": {
+    "class": null,
+    "handler": "labo_door_check",
+    "method": 3,
+    "region": 4,
+    "room": 143
+  },
+  "719": {
+    "class": null,
+    "handler": "apart_door_check",
+    "method": 3,
+    "region": 5,
+    "room": 143
+  },
+  "739": {
+    "class": null,
+    "handler": "crabcrab_in_col",
+    "method": 1,
+    "region": 0,
+    "room": 153
+  },
+  "740": {
+    "class": null,
+    "handler": "door_hoseb",
+    "method": 3,
+    "region": 3,
+    "room": 153
+  },
+  "741": {
+    "class": null,
+    "handler": "pier_trouble",
+    "method": 2,
+    "region": 1,
+    "room": 153
+  },
+  "742": {
+    "class": null,
+    "handler": "pier_trouble",
+    "method": 2,
+    "region": 2,
+    "room": 153
+  },
+  "743": {
+    "class": null,
+    "handler": "ev_mechakyogre_check",
+    "method": 3,
+    "region": 14,
+    "room": 153
+  },
+  "757": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 144
+  },
+  "762": {
+    "class": "television",
+    "handler": "watch_tv_l",
+    "method": 3,
+    "region": 3,
+    "room": 145
+  },
+  "763": {
+    "class": "television",
+    "handler": "watch_tv_r",
+    "method": 3,
+    "region": 4,
+    "room": 145
+  },
+  "767": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 151
+  },
+  "771": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 147
+  },
+  "774": {
+    "class": "television",
+    "handler": "watch_tv",
+    "method": 3,
+    "region": 0,
+    "room": 148
+  },
+  "795": {
+    "class": null,
+    "handler": "key_101_dr_fad",
+    "method": 3,
+    "region": 9,
+    "room": 169
+  },
+  "796": {
+    "class": null,
+    "handler": "key_101_dr_fad2",
+    "method": 3,
+    "region": 10,
+    "room": 169
+  },
+  "797": {
+    "class": null,
+    "handler": "kaminco_book",
+    "method": 3,
+    "region": 3,
+    "room": 169
+  },
+  "799": {
+    "class": null,
+    "handler": "chobin_book",
+    "method": 3,
+    "region": 1,
+    "room": 169
+  },
+  "800": {
+    "class": "television",
+    "handler": "watch_monitor_tv",
+    "method": 3,
+    "region": 0,
+    "room": 169
+  },
+  "805": {
+    "class": null,
+    "handler": "crane_move_aa",
+    "method": 3,
+    "region": 2,
+    "room": 172
+  },
+  "806": {
+    "class": null,
+    "handler": "crane_move_ab",
+    "method": 3,
+    "region": 3,
+    "room": 172
+  },
+  "807": {
+    "class": null,
+    "handler": "crane_move_ba",
+    "method": 3,
+    "region": 4,
+    "room": 172
+  },
+  "808": {
+    "class": null,
+    "handler": "crane_move_bb",
+    "method": 3,
+    "region": 5,
+    "room": 172
+  },
+  "809": {
+    "class": null,
+    "handler": "crane_move_ca",
+    "method": 3,
+    "region": 6,
+    "room": 172
+  },
+  "810": {
+    "class": null,
+    "handler": "crane_move_cb",
+    "method": 3,
+    "region": 7,
+    "room": 172
+  },
+  "811": {
+    "class": null,
+    "handler": "crane_move_da",
+    "method": 3,
+    "region": 8,
+    "room": 172
+  },
+  "812": {
+    "class": null,
+    "handler": "crane_move_db",
+    "method": 3,
+    "region": 9,
+    "room": 172
+  },
+  "813": {
+    "class": null,
+    "handler": "crane_move_ea",
+    "method": 3,
+    "region": 10,
+    "room": 172
+  },
+  "814": {
+    "class": null,
+    "handler": "crane_move_eb",
+    "method": 3,
+    "region": 11,
+    "room": 172
+  },
+  "815": {
+    "class": null,
+    "handler": "crane_move_fa",
+    "method": 3,
+    "region": 12,
+    "room": 172
+  },
+  "816": {
+    "class": null,
+    "handler": "crane_move_fb",
+    "method": 3,
+    "region": 13,
+    "room": 172
+  },
+  "817": {
+    "class": null,
+    "handler": "crane_move_ga",
+    "method": 3,
+    "region": 14,
+    "room": 172
+  },
+  "818": {
+    "class": null,
+    "handler": "crane_move_gb",
+    "method": 3,
+    "region": 15,
+    "room": 172
+  },
+  "819": {
+    "class": null,
+    "handler": "crane_move_ha",
+    "method": 3,
+    "region": 16,
+    "room": 172
+  },
+  "820": {
+    "class": null,
+    "handler": "crane_move_hb",
+    "method": 3,
+    "region": 17,
+    "room": 172
+  },
+  "829": {
+    "class": "plate",
+    "handler": "esa_set",
+    "method": 3,
+    "region": 1,
+    "room": 90
+  },
+  "830": {
+    "class": "plate",
+    "handler": "esa_set",
+    "method": 3,
+    "region": 1,
+    "room": 91
+  },
+  "831": {
+    "class": "plate",
+    "handler": "esa_set",
+    "method": 3,
+    "region": 1,
+    "room": 92
+  },
+  "88": {
+    "class": null,
+    "handler": "miharu_stop",
+    "method": 2,
+    "region": 2,
+    "room": 119
+  },
+  "89": {
+    "class": "vending",
+    "handler": "auto_sales",
+    "method": 3,
+    "region": 0,
+    "room": 119
+  },
+  "94": {
+    "class": null,
+    "handler": "lock_door",
+    "method": 3,
+    "region": 5,
+    "room": 120
+  }
+}

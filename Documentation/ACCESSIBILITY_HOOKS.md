@@ -9,12 +9,16 @@ Each candidate gets:
 - **Confidence** — Confirmed / Inferred / Unknown, per the same standard used throughout this audit.
 - **XG risk** — how likely the vanilla-XD evidence is to transfer, given XG is an unknown-revision ROM hack.
 
-## Live-evidence checkpoint
+## Live-evidence checkpoint — superseding the original Phase 0 ranking
 
-- **Inferred, not Confirmed:** `0x804454B4` and `0x804454BC` behaved like mirrored active-battler HP fields in one vanilla-XD opening-battle session (590 → 170 → 125 → 53). They are investigation leads only.
-- **Unknown:** the owning structure/pointer chain, stable maximum HP, opponent Metagross HP, survival across a complete Dolphin restart, and every aspect of XG applicability.
-- **Refuted:** treating `_orreHero`, `_menuCtrlHero`, or the observed `g_pHero` target as a proven direct route to the active battle Pokémon.
-- **Next target:** the battle command menu is preferred over the older title-menu proposal because it proves a directly useful part of the blind battle loop. No menu-selection address is yet verified.
+- **Confirmed for vanilla GXXE01 revision 0:** the production companion resolves battle command focus, move focus, shared GSmsg battle sentences, dynamic move substitutions, stat changes, poison/faint/loss text, and stable active-battler HP through named structures.
+- **Confirmed HP chain:** eight slots at `0x804A1730 + 0xDE44`; each slot provides `FightOutPokemon*`, then `FightPokemon*` at `+0x04`, embedded `Pokemon` at another `+0x04`, current HP at embedded `+0x04`, maximum HP at embedded `+0x90`, and nickname at `FightPokemon + 0x52`.
+- **Confirmed display correlation:** status windows are dynamically reconstructed from manager `0x80445A68`; copied nickname, maximum HP, target HP, animation old HP, and duration permit a unique settled-event match. See [PHASE_1F_HEALTH_NARRATION.md](PHASE_1F_HEALTH_NARRATION.md).
+- **Rejected as production hooks:** historical candidates `0x804454B4` and `0x804454BC`. They do not provide stable ownership or battler identity.
+- **Production integration:** generic settled percentage-loss narration is implemented and passes 59 automated tests. Its one bounded Earthquake regression remains pending.
+- **Still unknown:** every aspect of Pokémon XG compatibility. No vanilla address transfers to XG without a separate controlled validation.
+
+The tier list below is retained as the original research prioritization. Entries describing menu or vanilla-XD HP discovery as future work are historical and are superseded by this checkpoint.
 
 ## Tier 1 — Ready to probe once you have XG running (best first targets)
 
@@ -75,3 +79,27 @@ Recommended order, purely by readiness-and-corroboration-strength, not by narrat
 5. Dialogue and battle-message text (Tier 2, hardest of the near-term items due to the unresolved encoding question).
 
 Everything in Tier 3 is explicitly deferred per your current instructions and shouldn't be started until the above prove the approach works and you decide to expand scope.
+
+## Addendum — battle-menu static codemap audit (new candidates)
+
+This section adds candidates surfaced by a static-only codemap pass (`xd-decomp` source/symbols + `Pokemon-XD-Code` cross-reference, no live testing) recorded in full in [BATTLE_MENU_RESEARCH.md](BATTLE_MENU_RESEARCH.md). It does not revise any ranking above; it slots new items into the same tiering.
+
+### Tier 1 addition — Move IDs, PP, and move-property lookup
+- **Readiness:** Ready-to-probe for the per-Pokémon side (struct offsets known and cross-project-corroborated), Needs decompilation for the move-property table backend.
+- `Pokemon::wazas[4]` at struct offset `+0x80` (`xd-decomp/include/game/pxdvs/app/pokemon/pokemon.hpp:75-79,121`), each entry `{u16 dataId; u8 pp; u8 ppCount;}` — Confirmed real header, and independently corroborated by `Pokemon-XD-Code`'s `move1`/`move1PP`…`move4`/`move4PP` offsets `128-142` (`Objects/data types/XDPartyPokemon.swift:27-34`), which land on the exact same byte pattern. Same cross-project-agreement strength as the existing HP/status entries above.
+- Static move-property table (name/power/type/PP/target-range/priority/message-IDs) exists as a full symbol-only `wazaDataBios*` Get/Set family (`xd-decomp/config/GXXE01/symbols.txt:5463-5539`) — Confirmed-exists, Unknown-body (no decompiled source).
+- **XG risk:** Same caveat as HP/status — move/PP data is a plausible ROM-hack modification target.
+
+### Tier 2 additions — battle-engine root pointer and target-selection static candidate
+- **`fightFloorBiosGetFightFloorPtr`** (`.text:0x801F6274`, size `0xC` — trivial, almost certainly a bare pointer return): a large, systematic `fightFloor*`/`fightSide*` Bios-style accessor API exists in the retail binary (turn count, attack/defense Pokémon pointers, appointed move/target/item, per-side state, message IDs — full list in `BATTLE_MENU_RESEARCH.md` §4), all reachable in principle from this one root. **Readiness:** Needs discovery (disassembling this one short function to find its backing static global is the concrete next step) but structurally the most promising lead in the whole audit — one confirmed root would make most other battle-state fields offset-reachable instead of requiring individual blind scans.
+- **`_target_fight_pokemon_ptr`** (`.sbss:0x804EA650`, real static global, not stack-relative) plus two neighbor pointers `_target_fight_side_ptr`/`_target_fight_trainer_ptr` (`.sbss:0x804EA648`/`0x804EA64C`) — a directly testable candidate for "which Pokémon is currently the move's target," using the same `Z2` write-watchpoint methodology `PHASE_0_RESULTS.md` already proved reliable. **Readiness:** Ready-to-probe. **Not yet live-tested.**
+- **XG risk:** High for both, same reasoning as the existing "battle move/target selection" entry above (Tier 2 §5) — this addendum gives that entry concrete new addresses to try, it does not lower its risk rating.
+
+### Caveat on the existing `gLastSelectedIndex` lead (Tier "next target" in the live-evidence checkpoint above)
+Static analysis of `gLastSelectedIndex`'s (`.sdata:0x804E84CC`) immediate symbol-table neighborhood shows every adjacent named symbol is camera-system-related (`pCamWork`, `gCurrentFOV`, `gLastMotionType`, `gLoopCameraWaitTime` — `xd-decomp/config/GXXE01/symbols.txt:17009-17015`). This does not overrule the live result already recorded in `PHASE_0_RESULTS.md` (real watchpoint hit, right direction/magnitude, on a real Right press) — it's flagged as context for the next live step: when the paused investigation resumes and disassembles the writer at `PC=0x800B35E4`, check whether that PC falls inside a camera-prefixed function versus a `menuFight*`-prefixed one, since the write could plausibly be a camera-follow side effect of the UI action rather than the UI selection state itself. Full reasoning in `BATTLE_MENU_RESEARCH.md` §5.
+
+### Note on `Hero::getHeroPtr()` (relevant to the refuted Phase 0B `g_pHero` hypothesis)
+`xd-decomp`'s real decompiled source shows the retail code's actual live-`Hero*` accessor is `Hero::getHeroPtr()` (`.text:0x8015060C`), which calls `savedataGetStatus(0, 2)` (`.text:0x801CEFB4`) — not `g_pHero`. This doesn't reopen the Phase 0B refutation (`g_pHero`'s target still didn't match the expected struct), but it gives a source-grounded alternative accessor to try when that line of investigation resumes, instead of continuing to distrust `g_pHero` in isolation. Full reasoning in `BATTLE_MENU_RESEARCH.md` §3.
+
+### RNG-manipulation-assistant repo (`Research/ThirdParty/GC-pokemon-RNG-manipulation-assistant`) — checked, no new addresses
+This repo (starter-RNG manipulation via random-battle-team prediction, for both Pokémon Colosseum and XD) was checked as instructed for hardcoded battle/RNG memory addresses. **It has none.** It is a pure offline LCG-algorithm implementation (`Source/PokemonRNGSystem/BaseRNGSystem.h`/`.cpp` plus per-game subclasses `Colosseum/ColosseumRNGSystem`/`XD/GaleDarknessRNGSystem`) that predicts starter stats from a seed and frame-timing input alone — it has no Dolphin memory-engine integration and reads no live RAM at all, so it contributes no cross-reference data to this audit despite being an independent, already-working tool for this exact game family.

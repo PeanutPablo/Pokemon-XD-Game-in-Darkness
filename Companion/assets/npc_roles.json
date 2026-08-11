@@ -1,0 +1,84 @@
+{
+  "0x15": {
+    "7": "Pokemon Center nurse",
+    "10": "Pokemon Mart clerk"
+  },
+  "0x32": {
+    "6": "Pokemon Mart clerk"
+  },
+  "0x33": {
+    "6": "Pokemon Center nurse"
+  },
+  "0x3D": {
+    "6": "Pokemon Mart clerk",
+    "11": "Pokemon Mart clerk",
+    "12": "Pokemon Mart clerk",
+    "14": "Pokemon Mart clerk"
+  },
+  "0x41": {
+    "7": "Pokemon Center nurse"
+  },
+  "0x49": {
+    "12": "Pokemon Center nurse"
+  },
+  "0x4C": {
+    "17": "Pokemon Center nurse"
+  },
+  "0x4E": {
+    "5": "Pokemon Center nurse"
+  },
+  "0x65": {
+    "8": "Pokemon Center nurse"
+  },
+  "0x67": {
+    "6": "Pokemon Mart clerk"
+  },
+  "0x68": {
+    "6": "Pokemon Mart clerk"
+  },
+  "0x6E": {
+    "25": "Pokemon Center nurse"
+  },
+  "0x7": {
+    "6": "Pokemon Center nurse"
+  },
+  "0x71": {
+    "15": "Pokemon Center nurse"
+  },
+  "0x77": {
+    "34": "Pokemon Mart clerk"
+  },
+  "0x79": {
+    "9": "Pokemon Mart clerk"
+  },
+  "0x8": {
+    "31": "Pokemon Center nurse"
+  },
+  "0x85": {
+    "8": "Pokemon Center nurse"
+  },
+  "0x86": {
+    "7": "Pokemon Mart clerk"
+  },
+  "0x8C": {
+    "42": "Pokemon Center nurse"
+  },
+  "0x9A": {
+    "9": "Pokemon Center nurse"
+  },
+  "0x9C": {
+    "9": "Pokemon Mart clerk"
+  },
+  "0x9D": {
+    "7": "Pokemon Mart clerk"
+  },
+  "0xA4": {
+    "7": "Pokemon Mart clerk"
+  },
+  "0xA5": {
+    "14": "Pokemon Center nurse"
+  },
+  "0xB5": {
+    "8": "Pokemon Center nurse"
+  }
+}

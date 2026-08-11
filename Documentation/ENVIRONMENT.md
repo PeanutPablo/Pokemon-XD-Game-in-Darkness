@@ -30,6 +30,65 @@ Investigation date: 2026-07-23.
 
 Confirmed from `xd-decomp/README.md`: the project's stated goal is a **byte-matching** rebuild of the retail binary, version GXXE01 (USA) or NXXJ01 (JP Demo Disc). Nothing in the repo currently declares support for an "XG" revision. Any assumption that XG shares addresses/symbols with vanilla XD is **unconfirmed** and must be treated as a hypothesis to test once a legally-owned XG image is available.
 
+### How the companion decides whether a build is safe to read (2026-08-05)
+
+The "XG's exact revision/base is unconfirmed" row above is no longer
+something the companion has to guess at — it now **measures** it.
+
+Compatibility is gated on `profile.engine_signatures`: eight exact byte
+matches at fixed addresses, in small engine-internal functions covering
+every subsystem the narrator reads (message substitution, the message
+control-code table, the type chart, the Purify Chamber's Tempo bar and SET
+addressing, PC box capacity, Pokémon record identity, the save-data
+section table). All eight must match.
+
+Why not the disc label, which is what it used to check:
+
+- Every address in the profile is a position in the game's **code**, so the
+  question that matters is "is this binary laid out the way those addresses
+  assume", not "what does the disc call itself".
+- A ROM hack built on the US release keeps that layout while being free to
+  relabel the disc. The label check refused exactly those builds — i.e. it
+  could refuse XG, the game this project exists for.
+- Conversely a hack that kept the label but moved code would have sailed
+  straight through the label check. The signature check catches that.
+
+This is a **safety** mechanism, not a convenience one. Reading a PAL or JP
+retail image with these addresses would not fail loudly; it would speak
+confident nonsense, which for a blind player is worse than refusing to
+start. A mid-boot attach (all signatures reading as zeroes) is reported as
+"not ready yet, retry", never as "wrong game".
+
+Provenance: signature bytes were taken from xd-decomp's matching GXXE01
+build, and every one of these functions sits at a **different** address in
+NXXJ01 — so the set genuinely discriminates between builds rather than
+matching any Orre-engine binary.
+
+To check an image before starting the narrator (useful after converting a
+disc image, or when trying a different dump or hack):
+
+```bash
+Companion/.venv/Scripts/python.exe Companion/check_game_compatibility.py
+```
+
+It prints the disc label, how many engine checks matched, and a plain
+SUPPORTED / NOT SUPPORTED verdict.
+
+**Container format is irrelevant.** RVZ/CISO/GCZ → ISO is a lossless
+change to how the image is stored; the bytes Dolphin loads are identical,
+and the companion never reads the image file at all (it reads Dolphin's
+emulated RAM). Converting a disc image cannot affect accessibility.
+
+**Still not supported, and not cheaply fixable:** PAL (`GXXP01`) and JP
+retail (`GXXJ01`). No published symbol map exists for either, so all 187
+of the companion's addresses would need original reverse-engineering per
+build, plus re-derived struct offsets, region-specific menu/message IDs,
+and (for JP) Japanese text handling the GSchar decoder does not do. An
+audit on 2026-08-05 found 176 of those 187 addresses land exactly on a
+named symbol and all 176 exist by name in the NXXJ01 map — so a
+symbol-driven profile would make a new build largely automatic **if** a map
+for it ever existed. It does not.
+
 ## Locally installed tooling (checked, not installed)
 
 | Requirement | Repo's stated need | What's on this machine | Status |

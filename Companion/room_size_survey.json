@@ -1,0 +1,1241 @@
+[
+ {
+  "room": "B1_1",
+  "nodes": 350,
+  "bbox_tiles": 391,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "B1_2",
+  "nodes": 350,
+  "bbox_tiles": 391,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "B1_3",
+  "nodes": 266,
+  "bbox_tiles": 317,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "B1_6",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "D1_garage_1F",
+  "nodes": 454,
+  "bbox_tiles": 479,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D1_garage_B1",
+  "nodes": 313,
+  "bbox_tiles": 323,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D1_garage_B2_1",
+  "nodes": 252,
+  "bbox_tiles": 245,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D1_garage_B2_2",
+  "nodes": 684,
+  "bbox_tiles": 656,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "D1_labo_1F",
+  "nodes": 432,
+  "bbox_tiles": 402,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D1_labo_B1",
+  "nodes": 3264,
+  "bbox_tiles": 3180,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "D1_labo_B2",
+  "nodes": 934,
+  "bbox_tiles": 1096,
+  "build_s": 0.062000000005355105,
+  "note": ""
+ },
+ {
+  "room": "D1_labo_B3",
+  "nodes": 2688,
+  "bbox_tiles": 2673,
+  "build_s": 0.17199999999138527,
+  "note": ""
+ },
+ {
+  "room": "D1_out",
+  "nodes": 3512,
+  "bbox_tiles": 3909,
+  "build_s": 0.23399999999674037,
+  "note": ""
+ },
+ {
+  "room": "D2_cloud_1",
+  "nodes": 1307,
+  "bbox_tiles": 24197,
+  "build_s": 0.09400000001187436,
+  "note": ""
+ },
+ {
+  "room": "D2_cloud_2",
+  "nodes": 1344,
+  "bbox_tiles": 24825,
+  "build_s": 0.07800000000861473,
+  "note": ""
+ },
+ {
+  "room": "D2_cloud_3",
+  "nodes": 1191,
+  "bbox_tiles": 24615,
+  "build_s": 0.0629999999946449,
+  "note": ""
+ },
+ {
+  "room": "D2_cloud_4",
+  "nodes": 1215,
+  "bbox_tiles": 16872,
+  "build_s": 0.0779999999795109,
+  "note": ""
+ },
+ {
+  "room": "D2_crater_colo",
+  "nodes": 3387,
+  "bbox_tiles": 6984,
+  "build_s": 0.1870000000053551,
+  "note": ""
+ },
+ {
+  "room": "D2_magma_1",
+  "nodes": 1275,
+  "bbox_tiles": 9086,
+  "build_s": 0.09399999998277053,
+  "note": ""
+ },
+ {
+  "room": "D2_magma_2",
+  "nodes": 1266,
+  "bbox_tiles": 9089,
+  "build_s": 0.09400000001187436,
+  "note": ""
+ },
+ {
+  "room": "D2_magma_3",
+  "nodes": 1313,
+  "bbox_tiles": 8762,
+  "build_s": 0.10999999998603016,
+  "note": ""
+ },
+ {
+  "room": "D2_out",
+  "nodes": 1118,
+  "bbox_tiles": 1163,
+  "build_s": 0.09299999999348074,
+  "note": ""
+ },
+ {
+  "room": "D2_pc_1F",
+  "nodes": 324,
+  "bbox_tiles": 322,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_1",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_2",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_3",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_4",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_5",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_6",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_7",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_8",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D2_rest_9",
+  "nodes": 248,
+  "bbox_tiles": 254,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "D2_valley_1",
+  "nodes": 1434,
+  "bbox_tiles": 9688,
+  "build_s": 0.10999999998603016,
+  "note": ""
+ },
+ {
+  "room": "D2_valley_2",
+  "nodes": 1357,
+  "bbox_tiles": 9164,
+  "build_s": 0.07899999999790452,
+  "note": ""
+ },
+ {
+  "room": "D2_valley_3",
+  "nodes": 1337,
+  "bbox_tiles": 9164,
+  "build_s": 0.09399999998277053,
+  "note": ""
+ },
+ {
+  "room": "D3_out",
+  "nodes": 14900,
+  "bbox_tiles": 16549,
+  "build_s": 0.8120000000053551,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B1_1",
+  "nodes": 206,
+  "bbox_tiles": 214,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B1_2",
+  "nodes": 160,
+  "bbox_tiles": 189,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B1_3",
+  "nodes": 616,
+  "bbox_tiles": 600,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B2_1",
+  "nodes": 292,
+  "bbox_tiles": 425,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B2_2",
+  "nodes": 298,
+  "bbox_tiles": 314,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_B2_3",
+  "nodes": 286,
+  "bbox_tiles": 309,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_bridge",
+  "nodes": 112,
+  "bbox_tiles": 117,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_cabine",
+  "nodes": 282,
+  "bbox_tiles": 342,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D3_ship_deck",
+  "nodes": 693,
+  "bbox_tiles": 779,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "D4_casino_colo",
+  "nodes": 6786,
+  "bbox_tiles": 6776,
+  "build_s": 0.3129999999946449,
+  "note": ""
+ },
+ {
+  "room": "D4_dome_1",
+  "nodes": 146,
+  "bbox_tiles": 226,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "D4_dome_2",
+  "nodes": 648,
+  "bbox_tiles": 625,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D4_dome_3",
+  "nodes": 676,
+  "bbox_tiles": 625,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D4_dome_4",
+  "nodes": 609,
+  "bbox_tiles": 625,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "D4_out",
+  "nodes": 572,
+  "bbox_tiles": 680,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D4_out_2",
+  "nodes": 804,
+  "bbox_tiles": 795,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "D4_tower_1F_1",
+  "nodes": 1926,
+  "bbox_tiles": 1935,
+  "build_s": 0.1090000000258442,
+  "note": ""
+ },
+ {
+  "room": "D4_tower_1F_2",
+  "nodes": 324,
+  "bbox_tiles": 318,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "D4_tower_1F_3",
+  "nodes": 342,
+  "bbox_tiles": 331,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_1F",
+  "nodes": 234,
+  "bbox_tiles": 1566,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_2F",
+  "nodes": 340,
+  "bbox_tiles": 738,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_3F",
+  "nodes": 248,
+  "bbox_tiles": 547,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_4F",
+  "nodes": 623,
+  "bbox_tiles": 625,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_B1",
+  "nodes": 223,
+  "bbox_tiles": 374,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_hat",
+  "nodes": 452,
+  "bbox_tiles": 550,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D5_factory_top",
+  "nodes": 752,
+  "bbox_tiles": 893,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "D5_out",
+  "nodes": 10315,
+  "bbox_tiles": 25848,
+  "build_s": 0.5310000000172295,
+  "note": ""
+ },
+ {
+  "room": "D6_cruiser",
+  "nodes": 108,
+  "bbox_tiles": 109,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D6_dome_1F",
+  "nodes": 3725,
+  "bbox_tiles": 3906,
+  "build_s": 0.23399999999674037,
+  "note": ""
+ },
+ {
+  "room": "D6_dome_2F",
+  "nodes": 3844,
+  "bbox_tiles": 3906,
+  "build_s": 0.1879999999946449,
+  "note": ""
+ },
+ {
+  "room": "D6_dome_B1",
+  "nodes": 3905,
+  "bbox_tiles": 3906,
+  "build_s": 0.1879999999946449,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_1F",
+  "nodes": 1671,
+  "bbox_tiles": 1700,
+  "build_s": 0.10899999999674037,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_2F_1",
+  "nodes": 3824,
+  "bbox_tiles": 3906,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_2F_2",
+  "nodes": 255,
+  "bbox_tiles": 1035,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_2F_3",
+  "nodes": 100,
+  "bbox_tiles": 187,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_3F_1",
+  "nodes": 473,
+  "bbox_tiles": 1445,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_3F_2",
+  "nodes": 196,
+  "bbox_tiles": 809,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_4F",
+  "nodes": 3844,
+  "bbox_tiles": 3906,
+  "build_s": 0.26600000000325963,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_5F",
+  "nodes": 85,
+  "bbox_tiles": 931,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_6F",
+  "nodes": 3842,
+  "bbox_tiles": 3906,
+  "build_s": 0.1879999999946449,
+  "note": ""
+ },
+ {
+  "room": "D6_fort_B1",
+  "nodes": 3844,
+  "bbox_tiles": 3906,
+  "build_s": 0.21799999999348074,
+  "note": ""
+ },
+ {
+  "room": "D6_out_all",
+  "nodes": 3844,
+  "bbox_tiles": 3906,
+  "build_s": 0.17199999999138527,
+  "note": ""
+ },
+ {
+  "room": "D6_out_dome",
+  "nodes": 5332,
+  "bbox_tiles": 5414,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "D6_out_foot",
+  "nodes": 1626,
+  "bbox_tiles": 1780,
+  "build_s": 0.125,
+  "note": ""
+ },
+ {
+  "room": "D7_out",
+  "nodes": 3905,
+  "bbox_tiles": 3906,
+  "build_s": 0.20300000000861473,
+  "note": ""
+ },
+ {
+  "room": "D7_out_bf",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "esaba_A",
+  "nodes": 930,
+  "bbox_tiles": 948,
+  "build_s": 0.062000000005355105,
+  "note": ""
+ },
+ {
+  "room": "esaba_B",
+  "nodes": 676,
+  "bbox_tiles": 625,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "esaba_C",
+  "nodes": 676,
+  "bbox_tiles": 625,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "M1_carde_1",
+  "nodes": 228,
+  "bbox_tiles": 237,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "M1_gym_1F",
+  "nodes": 960,
+  "bbox_tiles": 954,
+  "build_s": 0.07800000000861473,
+  "note": ""
+ },
+ {
+  "room": "M1_gym_B1",
+  "nodes": 1006,
+  "bbox_tiles": 1044,
+  "build_s": 0.07800000000861473,
+  "note": ""
+ },
+ {
+  "room": "M1_houseA_1F",
+  "nodes": 319,
+  "bbox_tiles": 308,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "M1_houseA_2F",
+  "nodes": 156,
+  "bbox_tiles": 165,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M1_houseB_1F",
+  "nodes": 324,
+  "bbox_tiles": 309,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M1_houseC_1F",
+  "nodes": 165,
+  "bbox_tiles": 169,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M1_out",
+  "nodes": 2492,
+  "bbox_tiles": 6096,
+  "build_s": 0.1870000000053551,
+  "note": ""
+ },
+ {
+  "room": "M1_pc_1F",
+  "nodes": 500,
+  "bbox_tiles": 496,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M1_pc_B1",
+  "nodes": 214,
+  "bbox_tiles": 219,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "M1_shop_1F",
+  "nodes": 450,
+  "bbox_tiles": 430,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M1_shop_2F",
+  "nodes": 394,
+  "bbox_tiles": 393,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M1_stadium_1F",
+  "nodes": 1552,
+  "bbox_tiles": 1550,
+  "build_s": 0.07800000000861473,
+  "note": ""
+ },
+ {
+  "room": "M1_water_colo_field",
+  "nodes": 4900,
+  "bbox_tiles": 4830,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "M2_building_1F",
+  "nodes": 972,
+  "bbox_tiles": 967,
+  "build_s": 0.07899999999790452,
+  "note": ""
+ },
+ {
+  "room": "M2_building_2F",
+  "nodes": 972,
+  "bbox_tiles": 948,
+  "build_s": 0.09399999998277053,
+  "note": ""
+ },
+ {
+  "room": "M2_building_3F",
+  "nodes": 714,
+  "bbox_tiles": 719,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "M2_building_4F",
+  "nodes": 288,
+  "bbox_tiles": 262,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_1F_1",
+  "nodes": 11310,
+  "bbox_tiles": 11350,
+  "build_s": 0.6089999999967404,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_1F_2",
+  "nodes": 2175,
+  "bbox_tiles": 2191,
+  "build_s": 0.17199999999138527,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_2F_1",
+  "nodes": 7050,
+  "bbox_tiles": 7083,
+  "build_s": 0.40599999998812564,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_2F_2",
+  "nodes": 11130,
+  "bbox_tiles": 11046,
+  "build_s": 0.6720000000204891,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_3F_1",
+  "nodes": 2640,
+  "bbox_tiles": 2696,
+  "build_s": 0.1720000000204891,
+  "note": ""
+ },
+ {
+  "room": "M2_cave_3F_2",
+  "nodes": 3968,
+  "bbox_tiles": 3955,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "M2_earth_colo",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "M2_enter_1F",
+  "nodes": 270,
+  "bbox_tiles": 382,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "M2_enter_1F_2",
+  "nodes": 270,
+  "bbox_tiles": 382,
+  "build_s": 0.03200000000651926,
+  "note": ""
+ },
+ {
+  "room": "M2_guild_1F_1",
+  "nodes": 216,
+  "bbox_tiles": 222,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M2_guild_1F_2",
+  "nodes": 616,
+  "bbox_tiles": 592,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "M2_hotel_1F",
+  "nodes": 432,
+  "bbox_tiles": 456,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "M2_houseA_1F",
+  "nodes": 180,
+  "bbox_tiles": 178,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "M2_out",
+  "nodes": 3374,
+  "bbox_tiles": 7745,
+  "build_s": 0.28099999998812564,
+  "note": ""
+ },
+ {
+  "room": "M2_police_1F",
+  "nodes": 416,
+  "bbox_tiles": 409,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "M2_shop_1F",
+  "nodes": 180,
+  "bbox_tiles": 196,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "M2_uranai_1F",
+  "nodes": 192,
+  "bbox_tiles": 199,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M2_windmill_1F",
+  "nodes": 224,
+  "bbox_tiles": 226,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M3_cave_1F_1",
+  "nodes": 1056,
+  "bbox_tiles": 1071,
+  "build_s": 0.0629999999946449,
+  "note": ""
+ },
+ {
+  "room": "M3_cave_1F_2",
+  "nodes": 512,
+  "bbox_tiles": 547,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "M3_houseA_1F",
+  "nodes": 156,
+  "bbox_tiles": 144,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M3_houseB_1F",
+  "nodes": 120,
+  "bbox_tiles": 105,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M3_houseC_1F",
+  "nodes": 120,
+  "bbox_tiles": 125,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M3_houseC_2F",
+  "nodes": 80,
+  "bbox_tiles": 75,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M3_houseD_1F",
+  "nodes": 132,
+  "bbox_tiles": 127,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M3_out",
+  "nodes": 2968,
+  "bbox_tiles": 8606,
+  "build_s": 0.25,
+  "note": ""
+ },
+ {
+  "room": "M3_pc_1F",
+  "nodes": 168,
+  "bbox_tiles": 174,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M3_shop_1F",
+  "nodes": 224,
+  "bbox_tiles": 216,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M3_shrine_1F",
+  "nodes": 170,
+  "bbox_tiles": 334,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M5_apart_1F",
+  "nodes": 375,
+  "bbox_tiles": 418,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "M5_apart_2F",
+  "nodes": 358,
+  "bbox_tiles": 460,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "M5_labo_1F",
+  "nodes": 414,
+  "bbox_tiles": 477,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M5_labo_2F",
+  "nodes": 427,
+  "bbox_tiles": 521,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M5_labo_B1",
+  "nodes": 192,
+  "bbox_tiles": 218,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M5_out",
+  "nodes": 1943,
+  "bbox_tiles": 3496,
+  "build_s": 0.15600000001722947,
+  "note": ""
+ },
+ {
+  "room": "M6_crab_1F",
+  "nodes": 1,
+  "bbox_tiles": 500,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M6_crab_2F",
+  "nodes": 295,
+  "bbox_tiles": 310,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M6_crab_B1",
+  "nodes": 36,
+  "bbox_tiles": 55,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M6_houseA",
+  "nodes": 67,
+  "bbox_tiles": 80,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M6_houseB",
+  "nodes": 120,
+  "bbox_tiles": 124,
+  "build_s": 0.014999999984866008,
+  "note": ""
+ },
+ {
+  "room": "M6_houseC",
+  "nodes": 72,
+  "bbox_tiles": 68,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M6_houseD",
+  "nodes": 64,
+  "bbox_tiles": 64,
+  "build_s": 0.0,
+  "note": ""
+ },
+ {
+  "room": "M6_junk_1F",
+  "nodes": 216,
+  "bbox_tiles": 237,
+  "build_s": 0.031000000017229468,
+  "note": ""
+ },
+ {
+  "room": "M6_junk_2F",
+  "nodes": 100,
+  "bbox_tiles": 102,
+  "build_s": 0.0159999999741558,
+  "note": ""
+ },
+ {
+  "room": "M6_out",
+  "nodes": 24555,
+  "bbox_tiles": 24609,
+  "build_s": 1.75,
+  "note": ""
+ },
+ {
+  "room": "M6_pc_1F",
+  "nodes": 270,
+  "bbox_tiles": 269,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "M6_pc_2F",
+  "nodes": 108,
+  "bbox_tiles": 121,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "M6_shop_1F",
+  "nodes": 326,
+  "bbox_tiles": 350,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "M6_shop_2F",
+  "nodes": 132,
+  "bbox_tiles": 140,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "M6_tower_1F",
+  "nodes": 484,
+  "bbox_tiles": 441,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "M6_tower_2F",
+  "nodes": 231,
+  "bbox_tiles": 319,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "M6_tower_3F",
+  "nodes": 427,
+  "bbox_tiles": 562,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "M6_tower_4F",
+  "nodes": 356,
+  "bbox_tiles": 467,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "M6_tower_top",
+  "nodes": 696,
+  "bbox_tiles": 896,
+  "build_s": 0.10999999998603016,
+  "note": ""
+ },
+ {
+  "room": "peopleViewer001",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "S1_out",
+  "nodes": 1504,
+  "bbox_tiles": 1495,
+  "build_s": 0.09400000001187436,
+  "note": ""
+ },
+ {
+  "room": "S1_shop_1F",
+  "nodes": 280,
+  "bbox_tiles": 271,
+  "build_s": 0.015000000013969839,
+  "note": ""
+ },
+ {
+  "room": "S2_building_1F_2",
+  "nodes": 1110,
+  "bbox_tiles": 1102,
+  "build_s": 0.07800000000861473,
+  "note": ""
+ },
+ {
+  "room": "S2_building_2F_2",
+  "nodes": 1155,
+  "bbox_tiles": 1135,
+  "build_s": 0.09299999999348074,
+  "note": ""
+ },
+ {
+  "room": "S2_building_3F_2",
+  "nodes": 598,
+  "bbox_tiles": 584,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "S2_out_2",
+  "nodes": 1800,
+  "bbox_tiles": 1794,
+  "build_s": 0.15600000001722947,
+  "note": ""
+ },
+ {
+  "room": "S3_labo_1F",
+  "nodes": 660,
+  "bbox_tiles": 659,
+  "build_s": 0.046999999991385266,
+  "note": ""
+ },
+ {
+  "room": "S3_labo_1F_EH",
+  "nodes": 120,
+  "bbox_tiles": 125,
+  "build_s": 0.01600000000325963,
+  "note": ""
+ },
+ {
+  "room": "S3_labo_B1low",
+  "nodes": 340,
+  "bbox_tiles": 585,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ },
+ {
+  "room": "S3_labo_B1up",
+  "nodes": 598,
+  "bbox_tiles": 585,
+  "build_s": 0.0470000000204891,
+  "note": ""
+ },
+ {
+  "room": "S3_out",
+  "nodes": 1892,
+  "bbox_tiles": 2253,
+  "build_s": 0.139999999984866,
+  "note": ""
+ },
+ {
+  "room": "Script_test",
+  "nodes": 2477,
+  "bbox_tiles": 6096,
+  "build_s": 0.34400000001187436,
+  "note": ""
+ },
+ {
+  "room": "T1_ancient_colo",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "TEST000",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "TEST001",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "TEST002",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "TEST003",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "TEST004",
+  "nodes": 0,
+  "bbox_tiles": 0,
+  "build_s": 0.0,
+  "note": "no walk model"
+ },
+ {
+  "room": "tv_test",
+  "nodes": 280,
+  "bbox_tiles": 271,
+  "build_s": 0.030999999988125637,
+  "note": ""
+ }
+]
