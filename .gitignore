@@ -2,12 +2,31 @@
 /xd-decomp/
 /Pokemon-XD-Code/
 
+# Research working tree, ignored WHOLE because everything in it is one of
+# the two things that must never be committed:
+#   Research/ThirdParty/  six upstream clones, each with its own .git --
+#                         committing them would write broken gitlinks
+#   Research/GateonBridge/  raw .fsys archives pulled off the disc and their
+#                         decoded contents, i.e. copyrighted game data
+# Documentation cites paths under here; those are local reference material,
+# the same arrangement as xd-decomp and Pokemon-XD-Code above.
+/Research/
+
 # Python virtual environment (regenerable, platform-specific)
 /Companion/.venv/
 
 # Raw emulated-memory snapshots (may contain substantial copyrighted game data; local-only per FIRST_VERTICAL_SLICE.md)
 /Companion/_phase0_scratch_snapshots/
 /Companion/logs/
+
+# Extracted disc files and decoded dialogue/string tables (copyrighted game
+# text/data; local-only per TEXT_AND_DIALOGUE_PIPELINE.md section 11).
+# Generated per-machine by Companion/bootstrap_game_data.py from the
+# player's own disc image; never committed, never packaged.
+/Companion/_dialogue_extraction/
+
+# Written by Setup: one machine's Dolphin and game-image paths.
+/Companion/companion_settings.json
 
 # Game images / disc dumps -- never tracked, regardless of location
 *.iso
@@ -27,3 +46,12 @@ __pycache__/
 # OS cruft
 Thumbs.db
 .DS_Store
+# Personal game-audio modifications are local-only. These directory rules are
+# defense in depth; the actual personal folder lives beside this project.
+/Personal Music Overrides/
+/Private Music Overrides/
+/personal-music/
+/music-overrides/
+
+# Generated release archives live beside the project, never inside it.
+/Accessibility Releases/

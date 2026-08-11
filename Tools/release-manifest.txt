@@ -1,0 +1,55 @@
+# Files and directories approved for an accessibility-only release.
+# The builder treats this as documentation; its copy operations are equally
+# explicit so an accidentally added private file cannot enter the archive.
+
+# Companion code
+Companion/battle_narrator/*.py
+Companion/run_accessible_pokemon_xd.py
+Companion/run_battle_narrator.py
+Companion/run_battle_narrator_phase1b.py
+Companion/dolphin_input.py
+Companion/dolphin_keyboard_driver.py
+Companion/_dialogue_extraction_tool.py
+Companion/requirements.txt
+
+# First-run flow. The companion cannot start until the copyrighted tables
+# it reads have been generated from the recipient's own disc image, so the
+# tools that do that are part of the release, not development scratch.
+Companion/bootstrap_game_data.py
+Companion/extract_warp_collision_data.py
+Companion/setup_companion.py
+Companion/launch_accessible.py
+Companion/check_game_compatibility.py
+Setup.cmd
+Launch Accessible XD.cmd
+
+# Generated classification assets, derived from the extracted game scripts
+# and containing no copyrighted game text.
+Companion/assets/room_ids.json
+Companion/assets/npc_roles.json
+Companion/assets/interactables.json
+Companion/assets/room_services.json
+
+# Audio. npc_sounds_loud/ holds the CC-BY Mossy4 clips used by the audio
+# guide; sounds/ holds the project's own per-category beacons and footstep
+# recordings. It lived one level above this project until 2026-08-11 and
+# is now in-project, so the checkout and a release have the same shape.
+# Every file PASSIVE_BEACON_SOUND_FILES names must be here -- the builder
+# re-reads that table from the staged code and fails if one is missing,
+# because the narrator dies on the first beacon without it.
+Companion/assets/npc_sounds_loud/*.wav
+sounds/npcs.wav
+sounds/pokemarts.wav
+sounds/items.wav
+sounds/doors.wav
+sounds/warps.wav
+sounds/elevators.wav
+sounds/footsteps/*.wav
+sounds/_readme_and_license.txt
+
+# Documentation for the recipient. README-DISTRIBUTION.md is deliberately
+# absent: it describes how to build a release, not how to use one.
+README.md
+THIRD-PARTY-NOTICES.md
+LICENSE
+VERSION
