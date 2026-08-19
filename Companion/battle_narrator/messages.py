@@ -15,23 +15,28 @@ class Message:
     template: str
     opcodes: tuple
     raw: bytes
+    context: str = "battle"
 
 
-class FightCommonCatalog:
-    def __init__(self, extraction_dir):
-        path = Path(extraction_dir) / "raw" / "files" / "fight_common.fsys"
+class FsysMessageCatalog:
+    """Messages owned by one named table inside one FSYS archive."""
+
+    def __init__(self, path, entry_name, context):
+        path = Path(path)
         if not path.is_file():
             raise LocalDataError(
-                "Local fight_common data is missing. Run the existing dialogue "
+                f"Local {path.name} data is missing. Run the existing dialogue "
                 "extraction process against your own verified game image."
             )
         try:
             files = extraction.parse_fsys(path.read_bytes())
             entry = next(
-                item for item in files if item["type"] == 5 and item["name"] == "fight"
+                item for item in files
+                if item["type"] == 5 and item["name"] == entry_name
             )
         except Exception as exc:
-            raise LocalDataError(f"Could not load local fight_common data: {exc}") from exc
+            raise LocalDataError(
+                f"Could not load local {path.name} data: {exc}") from exc
         data = entry["data"]
         decoded = extraction.decode_string_table(data)
         count = int.from_bytes(data[4:6], "big")
@@ -48,6 +53,7 @@ class FightCommonCatalog:
                 extraction.render_tokens(tokens),
                 tuple(opcodes),
                 raw,
+                context,
             )
 
     @staticmethod
@@ -72,3 +78,38 @@ class FightCommonCatalog:
 
     def get(self, message_id):
         return self.messages.get(message_id)
+
+
+class FightCommonCatalog(FsysMessageCatalog):
+    def __init__(self, extraction_dir):
+        path = Path(extraction_dir) / "raw" / "files" / "fight_common.fsys"
+        super().__init__(path, "fight", "battle")
+
+
+class PocketMenuCatalog(FsysMessageCatalog):
+    """Item-use and other pocket-menu-owned message tasks."""
+
+    def __init__(self, pocket_menu_fsys_path):
+        super().__init__(pocket_menu_fsys_path, "pocket_menu", "pocket_menu")
+
+
+class RoomMessageCatalog(FsysMessageCatalog):
+    """Map-owned field dialogue from one extracted room archive."""
+
+    def __init__(self, room_fsys_path, room_name):
+        super().__init__(room_fsys_path, room_name, "field")
+
+
+class RoutedMessageCatalog:
+    """Route lookups through catalogs with optional live ownership gates."""
+
+    def __init__(self, routes):
+        self.routes = tuple(routes)
+
+    def get(self, message_id):
+        for catalog, active in self.routes:
+            if active is None or active():
+                message = catalog.get(message_id)
+                if message is not None:
+                    return message
+        return None

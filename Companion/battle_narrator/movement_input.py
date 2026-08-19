@@ -48,8 +48,23 @@ from .memory import MemoryError
 CONTROLLER_TABLE_BASE = 0x80444AF8
 CONTROLLER_STRIDE = 0x7C
 CONTROLLER_INDEX = 0  # assumed player 1; unconfirmed
+BUTTONS_OFFSET = 0x34
 STICK_X_OFFSET = 0x36
 STICK_Y_OFFSET = 0x37
+DPAD_MASK = 0x000F
+"""The four D-pad bits within the cached button halfword at +0x34.
+
+Read off the engine's own use of them rather than an SDK header:
+`_getStickData` (heroMove.s 0x8014E888-0x8014E8DC) tests
+`GSinputButtonsPressed` bit 0x8 and drives stick Y to -0x38, bit 0x4 to
++0x38, bit 0x1 drives X to -0x38 and bit 0x2 to +0x38 -- i.e. up/down/
+left/right, which is also the standard PAD_BUTTON_UP/DOWN/LEFT/RIGHT
+assignment.
+
+The button field is the LEVEL state (what is held right now), copied
+wholesale from the pad each frame by `GSinputRead`'s memcpy. That is the
+right thing for an abort check, which asks "is the player currently trying
+to move", not "did they just start"."""
 STICK_DEADZONE = 24  # see module docstring: still uncalibrated for analogue
                      # input (observed full deflection was +/-56, not +/-127)
 
@@ -77,6 +92,35 @@ class GSinputMovementSource:
             return False
         return abs(x) > STICK_DEADZONE or abs(y) > STICK_DEADZONE
 
+    def is_movement_requested(self):
+        """`is_direction_held`, plus the D-pad.
+
+        A separate method rather than a widening of `is_direction_held`
+        because the two callers want genuinely different things.
+        `BlockedMovementReader` asks "is the player pushing into this wall",
+        where a missed cue is a minor omission, and it has been tuned and
+        live-validated against the stick alone. Autowalk asks "does the
+        player want control back", where a MISSED signal means the player
+        keeps being walked somewhere after asking to stop -- so it errs the
+        other way and counts every input the engine would have turned into
+        movement.
+
+        Reading this while autowalk holds the override is meaningful: the
+        override short-circuits `_getStickData` only, and the controller
+        cache underneath it is still refreshed from the real pad every
+        frame. The player's stick is therefore still visible here even
+        though the game is ignoring it -- which is exactly what makes it
+        usable as the abort signal."""
+        if self.is_direction_held():
+            return True
+        base = CONTROLLER_TABLE_BASE + CONTROLLER_INDEX * CONTROLLER_STRIDE
+        try:
+            buttons = self.memory.u16(
+                base + BUTTONS_OFFSET, "movement input buttons")
+        except MemoryError:
+            return False
+        return bool(buttons & DPAD_MASK)
+
 
 class NeverHeldMovementSource:
     """Safe placeholder used whenever no verified input source is wired in
@@ -84,4 +128,13 @@ class NeverHeldMovementSource:
     silently falling back to the rejected stillness-only heuristic."""
 
     def is_direction_held(self):
+        return False
+
+    def is_movement_requested(self):
+        """Deliberately NOT the safe answer for autowalk, which is why this
+        placeholder must never be wired into it: autowalk needs this to
+        report input in order to STOP, so a source that always says "no
+        input" removes the player's ability to abort. It stays False here
+        only to keep the class honest as a stand-in for
+        `BlockedMovementReader`, whose cue this silences by design."""
         return False

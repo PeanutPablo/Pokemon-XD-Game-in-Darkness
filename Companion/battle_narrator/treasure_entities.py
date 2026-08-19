@@ -255,6 +255,7 @@ class LiveTreasureEntitySource:
         self.pose_source = NPCMemorySource(memory, profile)
         self._room_id = None
         self._records = ()
+        self._surveyed = False
 
     def player_pose(self):
         return self.pose_source.player_pose()
@@ -274,7 +275,48 @@ class LiveTreasureEntitySource:
         if room_id != self._room_id:
             self._records = parse_records(self.memory, room_id)
             self._room_id = room_id
+            self._surveyed = False
         return self._records
+
+    def survey(self, states, room_id):
+        """Log every treasure record in the room and why it is or is not
+        published -- ONCE per room entry, not per tick.
+
+        A pickup that never appears is invisible by definition: the player
+        cannot tell "no item here" from "the item is being filtered". This
+        makes the difference readable. Added 2026-08-13 for the
+        beginning-of-game PDA, which does not appear in Items and whose
+        record cannot be inspected offline -- `floor_tresure_list` is
+        built at room load and exists only in live memory."""
+        if self.logger is None or self._surveyed:
+            return
+        self._surveyed = True
+        self.logger.info(
+            "TREASURE SURVEY room=0x%02X: %d placeable record(s)",
+            room_id, len(states))
+        for state in states:
+            record = state.record
+            if not state.exists:
+                verdict = f"UNRESOLVED ({state.unresolved})"
+            elif state.landmark:
+                verdict = f"published as {state.label!r}"
+            elif not state.spawned:
+                verdict = "hidden: spawn flag clear"
+            elif state.collected:
+                verdict = "hidden: collected"
+            else:
+                verdict = "hidden"
+            self.logger.info(
+                "  TREASURE idx=%d ordinal=%d kind=%d cat=%d item=0x%X "
+                "collected_flag=%d(%s) spawn_flag=%d(%s) actor=%s disp=%s "
+                "pos=(%.1f,%.1f,%.1f) -> %s",
+                record.table_index, record.ordinal, record.kind,
+                record.category, record.item_id,
+                record.collected_flag, self._flag(record.collected_flag),
+                record.spawn_flag, self._flag(record.spawn_flag),
+                state.actor is not None, state.displayed,
+                state.position.x, state.position.y, state.position.z,
+                verdict)
 
     def _actors_by_res_id(self):
         if self.runtime is None:
@@ -374,7 +416,9 @@ class LiveTreasureEntitySource:
             self.profile.current_floor_id, "treasure room id")
         pose = None
         result = []
-        for state in self.states(room_id):
+        states = self.states(room_id)
+        self.survey(states, room_id)
+        for state in states:
             if not state.exists:
                 if self.logger is not None:
                     self.logger.debug(

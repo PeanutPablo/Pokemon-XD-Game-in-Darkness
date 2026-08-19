@@ -12,7 +12,6 @@ from .resolver import display_case
 # codepoint) -- not a real name, must not be spoken.
 UNREVEALED_NAME_CODEPOINT = 0x2031
 
-
 class ScriptedSpeakerNameTable:
     """Resolves the live "scripted speaker name" message ID (see
     profile.py's `scripted_speaker_message_id`) to rendered text via

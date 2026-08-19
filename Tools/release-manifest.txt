@@ -20,6 +20,7 @@ Companion/extract_warp_collision_data.py
 Companion/setup_companion.py
 Companion/launch_accessible.py
 Companion/check_game_compatibility.py
+Companion/check_image_compatibility.py
 Setup.cmd
 Launch Accessible XD.cmd
 

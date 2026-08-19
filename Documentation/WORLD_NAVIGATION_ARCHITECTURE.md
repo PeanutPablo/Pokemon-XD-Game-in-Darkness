@@ -186,7 +186,7 @@ forced to change.
 | `pathfinding.walk_height_candidates` | Companion to `GScolsys2WalkGetHeight`: every distinct walkable height at an XZ, capped at 8 (the engine's own cap), height-deduplicated, carrying layer identity. |
 | `pathfinding.resolve_node` | Companion to `GScolsys2WalkGetLayer`: picks by nearest height to a **known real Y**. Returns `None` when there is no coverage — no invented surfaces. |
 | `pathfinding._connected_walk_candidate` | Connectivity gate. **Layer-set intersection first**; `HEIGHT_CONTINUITY_TOLERANCE` applies only *after* that, as a defensive check inside an already layer-validated relationship. |
-| `collision_object_enable` | Interface for runtime object-enable state. Ships as `StaticObjectEnableState` (everything enabled). |
+| `collision_object_enable` | Runtime object-enable state, read live from `GScolsys2` (0x80445C20). `LiveObjectEnableState` snapshots `obj[i].flags` bit 0 (set = disabled) once per poll; `build_room_geometry` drops both slots' triangles for disabled objects, exactly as the engine's own walk and hit loops do. Unreadable ⇒ raises, never defaults. `StaticObjectEnableState` remains for offline `.ccd` analysis only. See COLLISION_DETECTION_INVESTIGATION.md. |
 
 The flow field is keyed by **node = `(tile, layer_set)`**, not bare tile,
 since one XZ tile can carry several layers with entirely different
@@ -857,6 +857,47 @@ cached geometry); `M6_out` and `M3_out` unchanged at 1.58 s and 0.23 s.
   garage's blockers are all 34 units tall — but it remains unverified.
 - The `M2_hotel_1F` largest component is 42.8%. Better than 16.9%, still not
   obviously right.
+
+## 6k. SUPERSEDED: nearest-reachable-point routing (2026-08-12)
+
+**Everything in 6i and 6j that describes guiding to "the reachable point
+nearest the destination" as successful routing is superseded. That rule was
+measured and removed.**
+
+It was introduced for `D1_garage_1F`'s basement warps and reused wherever a
+destination could not be seeded. Measured across all 3230 interaction-point
+pairs in the game, reproducing the rule offline:
+
+- it accepted 2024 routes, of which **265 were locally useful**;
+- 1070 further pairs were routed that should have been refused, none of them
+  terminating within 32 units of the destination (median 135.4, max 1678.2);
+- **190 of those routes had zero hops** -- the guide reported a walkable
+  route and pointed at the tile the player was already standing on.
+
+`always failed = 0` in that audit is the finding: the fallback never failed.
+It always returned something, so there was no honest refusal on that path.
+
+**What replaced it.** A route is accepted only when an ordinary walkable
+path reaches the destination's ARRIVAL TILES -- the triangles of its
+`region_geometry.Region` for a region-backed destination, or the tiles
+within the real arrival radius for a point. Same walk layers, wall tests,
+collision radius, corner rules and floor support as the flood fill; no
+projection or second fallback underneath. The field is re-seeded on the
+arrival tile, so an accepted route is continuous into the region.
+
+`REACHABILITY_FALLBACK_MAX_OFFSET` and every distance ceiling are retired.
+Distance survives in diagnostics only; it no longer determines route truth.
+
+**Consequences recorded honestly:**
+
+- Routed coverage fell from 69.3% to ~43% of interaction pairs. That is the
+  false routing being removed.
+- `D1_garage_1F`'s basement warps now refuse. Investigated rather than
+  exempted: this room's walk model has no surface beneath either region and
+  no reachable node shares a tile with them. They are cross-level.
+- `M3_cave_1F_1` refuses toward the shrine exit (`cause=disconnected`).
+- Connected components are precomputed per room so an unreachable
+  destination can be refused without a second full flood.
 
 ## 7. traversal_log.py — shelved
 

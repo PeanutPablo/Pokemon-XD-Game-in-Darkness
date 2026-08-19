@@ -199,6 +199,81 @@ def _ensure_16bit_wav(source_path, cache_path):
     return cache_path
 
 
+BLOCKED_CUE_FREQUENCY = 200.0
+"""Fundamental of the blocked-movement cue, in Hz.
+
+**Raised from 90.0 on 2026-08-18**, after the project owner reported the
+cue as inaudible from the Sound library. The file was never silent -- it
+peaks at full scale and measures -9 dBFS RMS -- but it is a square wave,
+and a square's energy is concentrated in its fundamental: at 90 Hz, 84% of
+it sat below 150 Hz, which laptop speakers and most earbuds simply do not
+reproduce. What reached the ear was the 270 Hz third harmonic at a third
+of the amplitude, and nothing else.
+
+200 Hz puts the fundamental itself in range on any speaker while keeping
+this the lowest, dullest cue in the set -- a thud rather than a beep, so it
+stays distinguishable from the beacons, which is why a low tone was chosen
+in the first place."""
+
+BLOCKED_CUE_FILENAME = "_terrain_blocked_200hz.wav"
+"""Renamed alongside the frequency change, deliberately.
+
+`resolve_blocked_path` generates the file only `if not path.exists()`, so
+every existing install already has the old 90 Hz one cached and would have
+kept it forever under the old name. A new name is the cache key: the
+retuned cue is generated on next launch, and the stale file is simply
+ignored."""
+
+
+def resolve_blocked_path(asset_dir):
+    """The blocked-movement cue's file, generating it if it is not cached.
+
+    A module function rather than a private step inside `TerrainTonePlayer.
+    __init__` because the sound library needs the same file to offer as a
+    listenable example, and it is built before any tone player exists.
+    Re-deriving the filename there would be a second place for it to be
+    written down, and the two would eventually disagree."""
+    asset_dir = Path(asset_dir)
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    path = asset_dir / BLOCKED_CUE_FILENAME
+    if not path.exists():
+        _write_click_wav(path, duration=0.16,
+                         frequency=BLOCKED_CUE_FREQUENCY, harsh=True)
+    return path
+
+
+def resolve_step_paths(asset_dir, footstep_sounds_dir=None):
+    """Every footstep clip, 16-bit and cached, or the synthesized fallback.
+
+    Same reasoning as `resolve_blocked_path`, and idempotent for the same
+    reason: `_ensure_16bit_wav` and `_write_click_wav` both skip work that
+    is already done, so calling this from two places costs one conversion
+    in total, not two."""
+    asset_dir = Path(asset_dir)
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    paths = ()
+    if footstep_sounds_dir is not None:
+        sounds_dir = Path(footstep_sounds_dir)
+        if sounds_dir.is_dir():
+            # `SpatialWavePlayer.play()` (npc_beacons.py) only accepts
+            # 16-bit WAV; the project owner's real footstep recordings are
+            # 24-bit, so each gets a cached 16-bit copy written once, not
+            # converted on every step.
+            paths = tuple(
+                _ensure_16bit_wav(
+                    source,
+                    asset_dir / f"_footstep_16bit_{source.stem}.wav",
+                )
+                for source in sorted(sounds_dir.glob("*.wav"))
+            )
+    if paths:
+        return paths
+    fallback_path = asset_dir / "_terrain_step_base.wav"
+    if not fallback_path.exists():
+        _write_click_wav(fallback_path, duration=0.09, frequency=260.0)
+    return (fallback_path,)
+
+
 class TerrainTonePlayer:
     """Plays accessibility-only footstep and blocked-movement tones.
     Reuses the existing `SpatialWavePlayer` pan/pitch/gain rendering
@@ -221,33 +296,9 @@ class TerrainTonePlayer:
     def __init__(self, wave_player, asset_dir, footstep_sounds_dir=None):
         self.wave_player = wave_player
         self.asset_dir = Path(asset_dir)
-        self.asset_dir.mkdir(parents=True, exist_ok=True)
-        self._blocked_path = self.asset_dir / "_terrain_blocked_base.wav"
-        if not self._blocked_path.exists():
-            _write_click_wav(
-                self._blocked_path, duration=0.16, frequency=90.0, harsh=True)
-
-        self._step_paths = ()
-        if footstep_sounds_dir is not None:
-            sounds_dir = Path(footstep_sounds_dir)
-            if sounds_dir.is_dir():
-                # `SpatialWavePlayer.play()` (npc_beacons.py) only accepts
-                # 16-bit WAV; the project owner's real footstep
-                # recordings are 24-bit, so each gets a cached 16-bit
-                # copy written once, not converted on every step.
-                self._step_paths = tuple(
-                    _ensure_16bit_wav(
-                        source,
-                        self.asset_dir / f"_footstep_16bit_{source.stem}.wav",
-                    )
-                    for source in sorted(sounds_dir.glob("*.wav"))
-                )
-        if not self._step_paths:
-            fallback_path = self.asset_dir / "_terrain_step_base.wav"
-            if not fallback_path.exists():
-                _write_click_wav(
-                    fallback_path, duration=0.09, frequency=260.0)
-            self._step_paths = (fallback_path,)
+        self._blocked_path = resolve_blocked_path(self.asset_dir)
+        self._step_paths = resolve_step_paths(
+            self.asset_dir, footstep_sounds_dir)
 
     STEP_GAIN = 0.9
     """Raised 50% from 0.6 at the project owner's request (2026-08-10)

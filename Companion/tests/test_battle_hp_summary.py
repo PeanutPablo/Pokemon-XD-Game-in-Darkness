@@ -1,6 +1,7 @@
 import logging
 import unittest
 
+from battle_narrator.battle_identity import party_slot_address
 from battle_narrator.health import BattlerIdentity, BattlerSample
 from battle_narrator.hotkeys import (
     BattleHPSummary, HotkeyError, WindowsForegroundHotkey, parse_hotkey
@@ -27,6 +28,18 @@ def battler(slot,name,hp,maximum,condition=0,level=50):
     base=0x80100000+slot*0x1000
     return BattlerSample(BattlerIdentity(slot,base,base+0x100,base+0x104),
                          name,hp,maximum,condition,level)
+
+
+def party_battler(slot,name,hp,maximum,side,party_slot,condition=0,level=50):
+    """A battler whose FightPokemon pointer really lands on a party-array
+    cell, so ownership is DERIVED rather than falling back to the
+    positional tuple. `side` 0 is the player, 1 the opponent."""
+    fight_pokemon=party_slot_address(XD_US_REV0,side,0,party_slot)
+    base=0x80100000+slot*0x1000
+    return BattlerSample(
+        BattlerIdentity(slot,base,fight_pokemon,
+                        fight_pokemon+XD_US_REV0.fight_pokemon_embedded_offset),
+        name,hp,maximum,condition,level)
 
 class SummaryTests(unittest.TestCase):
     def setUp(self):
@@ -70,6 +83,30 @@ class SummaryTests(unittest.TestCase):
     def test_one_press_does_not_repeat(self):
         self.press(); self.summary.poll_once(); self.summary.poll_once()
         self.assertEqual(len(self.speech.calls),1)
+    def test_sides_come_from_the_party_array_not_the_slot_index(self):
+        # The active array has compacted: the OPPONENT holds slots 0 and 1
+        # and the PLAYER holds 2 and 3 -- exactly the interleaving the
+        # positional `summary_slot_ownership` tuple gets backwards. Each
+        # battler's FightPokemon lands on a real party cell, so the derived
+        # answer is available and must win.
+        self.source.samples=[
+            party_battler(0,'GOLBAT',40,110,side=1,party_slot=0),
+            party_battler(1,'METAGROSS',128,155,side=1,party_slot=1),
+            party_battler(2,'SALAMENCE',142,171,side=0,party_slot=0),
+            party_battler(3,'MIGHTYENA',64,120,side=0,party_slot=1),
+        ]
+        self.press()
+        text=self.speech.calls[0][1]
+        self.assertTrue(text.startswith('Player Salamence'),text)
+        self.assertIn('Player Mightyena',text)
+        self.assertIn('Opponent Golbat',text)
+        self.assertIn('Opponent Metagross',text)
+        self.assertNotIn('Player Golbat',text)
+        self.assertNotIn('Opponent Salamence',text)
+        # Player side is spoken first even though it occupies the higher
+        # active-array slots.
+        self.assertLess(text.index('Player Salamence'),text.index('Opponent'))
+
     def test_status_names(self):
         expected={3:'poisoned',4:'badly poisoned',5:'paralyzed',6:'burned',7:'frozen',8:'asleep'}
         for condition,name in expected.items():
@@ -99,7 +136,7 @@ class SummaryTests(unittest.TestCase):
         self.assertTrue(hotkey.poll())
         self.assertFalse(hotkey.poll())  # edge-triggered once
     def test_hotkey_requires_modifier_and_is_configurable(self):
-        self.assertEqual(parse_hotkey('ctrl+shift+h'),(0x11,0x10,ord('H')))
+        self.assertEqual(parse_hotkey('ctrl+h'),(0x11,ord('H')))
         self.assertEqual(parse_hotkey('alt+f12'),(0x12,0x7B))
         with self.assertRaises(HotkeyError): parse_hotkey('h')
 

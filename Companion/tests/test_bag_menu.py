@@ -210,7 +210,16 @@ class BagMenuReaderTests(BagMenuTestCase):
         self._set_slot(ITEMS_CATEGORY, 0, item_id=13, quantity=2)
         self._set_cursor(ITEMS_CATEGORY, x=0)
         self.reader.poll_once()
-        self.assertIn("Items. Potion. Quantity 2.", self.speech.calls)
+        self.assertIn("Potion. Quantity 2. Items.", self.speech.calls)
+
+    def test_opening_speaks_item_identity_before_category(self):
+        # Live log 2026-08-11 showed rapid tab changes interrupting the
+        # utterance after only "Key Items" / "TMs". Identity must lead.
+        self._open_bag(0x80700100, ITEMS_CATEGORY)
+        self._set_slot(ITEMS_CATEGORY, 0, item_id=13, quantity=2)
+        self._set_cursor(ITEMS_CATEGORY, x=0)
+        self.reader.poll_once()
+        self.assertTrue(self.speech.calls[0].startswith("Potion."))
 
     def test_cursor_movement_announces_item_only_not_category(self):
         self._open_bag(0x80700100, ITEMS_CATEGORY)
@@ -231,7 +240,7 @@ class BagMenuReaderTests(BagMenuTestCase):
         self.reader.poll_once()
         self.reader.poll_once()
         self.assertEqual(
-            self.speech.calls.count("Items. Potion. Quantity 2."), 1)
+            self.speech.calls.count("Potion. Quantity 2. Items."), 1)
 
     def test_category_change_reannounces_category_and_item(self):
         self._open_bag(0x80700100, ITEMS_CATEGORY)
@@ -243,7 +252,7 @@ class BagMenuReaderTests(BagMenuTestCase):
         self._set_slot(BALLS_CATEGORY, 0, item_id=17, quantity=1)
         self._set_cursor(BALLS_CATEGORY, x=0)
         self.reader.poll_once()
-        self.assertIn("Balls. Super Potion. Quantity 1.", self.speech.calls)
+        self.assertIn("Super Potion. Quantity 1. Balls.", self.speech.calls)
 
     def test_empty_category_announced_once(self):
         # An empty category's only row (0) IS the trailing close row --
@@ -261,7 +270,7 @@ class BagMenuReaderTests(BagMenuTestCase):
         self._set_cursor(ITEMS_CATEGORY, x=0)
         self.reader.poll_once()
         self.assertIn(
-            "Items. Unknown item. Quantity 3.", self.speech.calls)
+            "Unknown item. Quantity 3. Items.", self.speech.calls)
         for call in self.speech.calls:
             self.assertNotIn("999", call)
 
@@ -276,14 +285,14 @@ class BagMenuReaderTests(BagMenuTestCase):
         self.speech.calls.clear()
         self._open_bag(0x80700100, ITEMS_CATEGORY)
         self.reader.poll_once()
-        self.assertIn("Items. Potion. Quantity 2.", self.speech.calls)
+        self.assertIn("Potion. Quantity 2. Items.", self.speech.calls)
 
     def test_zero_quantity_still_announced_plainly(self):
         self._open_bag(0x80700100, ITEMS_CATEGORY)
         self._set_slot(ITEMS_CATEGORY, 0, item_id=13, quantity=0)
         self._set_cursor(ITEMS_CATEGORY, x=0)
         self.reader.poll_once()
-        self.assertIn("Items. Potion. Quantity 0.", self.speech.calls)
+        self.assertIn("Potion. Quantity 0. Items.", self.speech.calls)
 
     def test_close_row_announced_after_last_real_item(self):
         # Live-confirmed 2026-07-29: moving down past the last real item
@@ -350,7 +359,7 @@ class BagMenuReaderWithDescriptionsTests(BagMenuTestCase):
         self._set_cursor(ITEMS_CATEGORY, x=0)
         self.reader.poll_once()
         self.assertIn(
-            "Items. Potion. Quantity 2. Restores 20 HP.",
+            "Potion. Quantity 2. Items. Restores 20 HP.",
             self.speech.calls,
         )
 
@@ -372,7 +381,7 @@ class BagMenuReaderWithDescriptionsTests(BagMenuTestCase):
         self._set_cursor(ITEMS_CATEGORY, x=0)
         self.reader.poll_once()
         self.assertIn(
-            "Items. Unknown item. Quantity 3.", self.speech.calls)
+            "Unknown item. Quantity 3. Items.", self.speech.calls)
 
     def test_no_resolver_means_no_description_clause(self):
         # BagMenuReader must work with description_resolver omitted
@@ -384,7 +393,7 @@ class BagMenuReaderWithDescriptionsTests(BagMenuTestCase):
         self._set_slot(ITEMS_CATEGORY, 0, item_id=13, quantity=2)
         self._set_cursor(ITEMS_CATEGORY, x=0)
         reader.poll_once()
-        self.assertIn("Items. Potion. Quantity 2.", self.speech.calls)
+        self.assertIn("Potion. Quantity 2. Items.", self.speech.calls)
 
 
 if __name__ == "__main__":

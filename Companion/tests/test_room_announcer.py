@@ -1,7 +1,8 @@
 import logging
 import unittest
 
-from battle_narrator.player_facing_names import build_room_names
+from battle_narrator.player_facing_names import (
+    build_room_names, player_facing_room_name)
 from battle_narrator.room_announcer import RoomChangeReader
 
 
@@ -94,13 +95,46 @@ class RoomChangeReaderTests(unittest.TestCase):
         """The project owner asked specifically for the entity-nav names, so
         that walking through a door announced as X arrives somewhere that
         calls itself X. Pinning that they come from the same function rather
-        than a parallel table that could drift."""
+        than a parallel table that could drift.
+
+        Asserts the SHARED SOURCE, not a literal. The literal it used to
+        hold ("Mt. Battle Pokemon Center, 1st floor.") went stale the moment
+        the map-name prefix was dropped on 2026-08-12, even though the
+        property this test exists to protect never broke -- which is exactly
+        the drift it is supposed to catch, pointed the wrong way."""
         room_codes = {0x15: "D2_pc_1F", 0x9A: "M6_pc_1F"}
-        reader = self._reader(build_room_names(room_codes))
+        room_names = build_room_names(room_codes)
+        reader = self._reader(room_names)
         self.floors.floor_id = 0x15
         reader.poll_once()
         self.assertEqual(
-            self.speech.calls, ["Mt. Battle Pokemon Center, 1st floor."])
+            self.speech.calls,
+            [f"{player_facing_room_name('D2_pc_1F')}."],
+            "the room announcer and the door label have drifted apart")
+
+    def test_the_map_name_is_not_repeated_on_a_building(self):
+        """Project owner, 2026-08-12: "remove the map name from entities...
+        especially from buildings list". Standing in Gateon Port, being told
+        the Pokemon Center is the "Gateon Port Pokemon Center" is noise.
+
+        Uses `M6_pc_1F` rather than `D2_pc_1F`, which was the example until
+        2026-08-18. D2_pc_1F is now an EXACT_ROOM_NAMES entry ("Mt. Battle
+        entrance" -- it is the Mt. Battle reception, not a Center at all),
+        so it short-circuits the generic rule and can no longer demonstrate
+        anything about it. The property itself is unchanged; only the
+        example had to move to a room that still goes through the rule."""
+        reader = self._reader(build_room_names({0x9A: "M6_pc_1F"}))
+        self.floors.floor_id = 0x9A
+        reader.poll_once()
+        self.assertEqual(self.speech.calls, ["Pokemon Center, 1st floor."])
+
+    def test_an_outdoor_area_still_announces_its_location(self):
+        """The complement: outdoors the location IS the room's name, so
+        dropping it there would leave the player with nothing."""
+        reader = self._reader(build_room_names({0x84: "M3_out"}))
+        self.floors.floor_id = 0x84
+        reader.poll_once()
+        self.assertEqual(self.speech.calls, ["Agate Village."])
 
 
 if __name__ == "__main__":

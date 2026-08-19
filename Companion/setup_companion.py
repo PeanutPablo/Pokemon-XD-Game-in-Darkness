@@ -108,10 +108,25 @@ def generate_game_data(disc):
 
 
 def write_settings(dolphin, disc):
-    SETTINGS.write_text(
-        json.dumps({"dolphin_exe": str(dolphin), "game_image": str(disc)},
-                   indent=2),
-        encoding="utf-8")
+    """Record the paths, keeping anything else already in the file.
+
+    Merged rather than rewritten because this is no longer the only writer:
+    the in-game settings menu stores the player's accessibility preferences
+    in the same file under its own key. Re-running Setup to point at a moved
+    Dolphin must not silently reset the volumes someone tuned by ear."""
+    document = {}
+    if SETTINGS.is_file():
+        try:
+            existing = json.loads(SETTINGS.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                document = existing
+        except (OSError, ValueError):
+            # An unreadable settings file is replaced, not repaired: Setup
+            # exists to put this machine into a known-good state.
+            document = {}
+    document["dolphin_exe"] = str(dolphin)
+    document["game_image"] = str(disc)
+    SETTINGS.write_text(json.dumps(document, indent=2), encoding="utf-8")
 
 
 def main():

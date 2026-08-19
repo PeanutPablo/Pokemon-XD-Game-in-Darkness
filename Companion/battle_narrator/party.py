@@ -63,6 +63,17 @@ class PartySlot:
     was not re-checked."""
 
 class PartyMemorySource:
+    PCBOX_SAVEDATA_OFFSET = 0xAD0
+    PCBOX_BOX_STRIDE = 0x170C
+    PCBOX_BOX_HEADER = 0x14
+    PCBOX_SLOT_STRIDE = 0xC4
+    PCBOX_BOX_COUNT = 8
+    PCBOX_SLOTS_PER_BOX = 30
+    PURIFY_HALL_SAVEDATA_OFFSET = 0x1D690
+    PURIFY_STAGE_COUNT = 9
+    PURIFY_STAGE_SIZE = 984
+    PURIFY_VISITOR_OFFSET = 784
+
     def __init__(self, memory, profile, move_data=None, ability_data=None):
         self.memory, self.profile = memory, profile
         self.move_data, self.ability_data = move_data, ability_data
@@ -126,6 +137,11 @@ class PartyMemorySource:
             savedata_base + p.darkpokemon_array_savedata_offset
             + dark_id * p.dark_pokemon_stride
         )
+        flags = self.memory.u8(
+            dark_pokemon_record + p.dark_pokemon_flags_offset,
+            f"dark pokemon flags {index}")
+        if flags & p.dark_pokemon_purified_flag:
+            return None, None
         current = self.memory.u32(
             dark_pokemon_record + p.dark_point_direct_offset,
             f"current dark point {index}")
@@ -261,6 +277,51 @@ class PartyMemorySource:
             if slot is not None:
                 result.append(slot)
         return result
+
+    def pc_slots(self):
+        """Decode every occupied Pokemon Storage cell in box/slot order."""
+        savedata = self._savedata_base()
+        result = []
+        for box in range(self.PCBOX_BOX_COUNT):
+            box_base = (savedata + self.PCBOX_SAVEDATA_OFFSET
+                        + box * self.PCBOX_BOX_STRIDE
+                        + self.PCBOX_BOX_HEADER)
+            for index in range(self.PCBOX_SLOTS_PER_BOX):
+                base = box_base + index * self.PCBOX_SLOT_STRIDE
+                try:
+                    slot = self._decode_slot(base, index)
+                except MemoryError:
+                    # Match the PC menu reader: a half-written or otherwise
+                    # invalid cell is treated as empty, without hiding valid
+                    # Shadow Pokemon elsewhere in storage.
+                    continue
+                if slot is not None:
+                    result.append(slot)
+        return result
+
+    def party_and_pc_slots(self):
+        """Return all occupied party and PC slots, in stable display order."""
+        return self.slots() + self.pc_slots()
+
+    def purify_chamber_slots(self):
+        """Decode the Shadow visitor at the centre of every occupied SET."""
+        savedata = self._savedata_base()
+        result = []
+        for index in range(self.PURIFY_STAGE_COUNT):
+            base = (savedata + self.PURIFY_HALL_SAVEDATA_OFFSET
+                    + index * self.PURIFY_STAGE_SIZE
+                    + self.PURIFY_VISITOR_OFFSET)
+            try:
+                slot = self._decode_slot(base, index)
+            except MemoryError:
+                continue
+            if slot is not None:
+                result.append(slot)
+        return result
+
+    def shadow_gauge_slots(self):
+        """All possible owned Shadow locations, in party/PC/SET order."""
+        return self.slots() + self.pc_slots() + self.purify_chamber_slots()
 
     def slot_for_pointer(self, pointer):
         """Decode whichever Pokemon struct a live pointer references --

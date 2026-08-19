@@ -53,6 +53,20 @@ class DialogueDecoderTests(unittest.TestCase):
   self.assertEqual(decode_page(page(ctrl(0x6a),ctrl(0x59),chars(': Oh! Big brother!'),ctrl(0),chars('What are you doing here?')),'DAVID'),'Oh! Big brother! What are you doing here?')
 
 class DialogueReaderTests(unittest.TestCase):
+ def test_special_msgvar_page_falls_back_to_canonical_renderer(self):
+  class Rendering:
+   is_speakable=True; text="NORDV is a decent nickname."
+  class Renderer:
+   def __init__(self): self.raw=None
+   def render_bytes(self,raw): self.raw=raw; return Rendering()
+  raw=page(ctrl(0x32),chars(" is a decent nickname."))
+  speech=Speech(); source=Source([snap(raw)]); renderer=Renderer()
+  r=DialogueReader(source,speech,logging.getLogger('dialogue-test'),
+                   message_renderer=renderer)
+  r.poll_once()
+  self.assertEqual(speech.items,[("NORDV is a decent nickname.",True)])
+  self.assertEqual(renderer.raw,raw)
+
  def test_initial_page_spoken_once(self):
   r,s=reader([snap()]);r.poll_once();r.poll_once();self.assertEqual(len(s.items),1)
  def test_typewriter_page_spoken_immediately(self):

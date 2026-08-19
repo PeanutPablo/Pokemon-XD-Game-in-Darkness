@@ -390,6 +390,48 @@ class TalkedNPCEntitySource:
             ))
         return result
 
+
+class GlobalCompanionEntitySource:
+    """Visible story companions stored outside the room NPC array.
+
+    The engine reserves group 0 for four global actors.  Resource 100 is
+    the player and must never be listed; resource 101 is Jovi.  The other
+    reserved resources remain unlabelled and are deliberately ignored.
+    Jovi is published only from her live displayed actor, so story scripts
+    retain complete control over when she exists in the room.
+    """
+
+    COMPANION_NAMES = {101: "Jovi"}
+
+    def __init__(self, pose_source, runtime):
+        self.pose_source = pose_source
+        self.runtime = runtime
+
+    def player_pose(self):
+        return self.pose_source.player_pose()
+
+    def entities(self):
+        result = []
+        for actor in self.runtime.actors():
+            label = self.COMPANION_NAMES.get(actor.res_id)
+            if actor.group_id != 0 or label is None or not actor.displayed:
+                continue
+            if actor.position is None:
+                continue
+            result.append(Entity(
+                category="npc",
+                identity=("global-companion", actor.res_id),
+                label=label,
+                position=actor.position,
+                interaction_distance=None,
+                metadata={
+                    "global_res_id": actor.res_id,
+                    "runtime_slot": actor.slot,
+                },
+            ))
+        return result
+
+
 class CategoryFilteredEntitySource:
     """Adapts npc_beacons.py's synthetic per-floor entries (its verified,
     hand-curated ITEMS/HEALING lookups, injected into NPCMemorySource.
@@ -426,6 +468,56 @@ class CategoryFilteredEntitySource:
                 interaction_distance=npc.interaction_radius,
             ))
         return result
+
+
+class ScriptedPdaEntitySource:
+    """The opening PDA is a room-script object, not a treasure record.
+
+    M5_apart_1F's XG script checks flag 1849 before offering the pickup and
+    sets flag 1660 after it is obtained.  During ``look_pda`` it places the
+    hero at (-104, 0.5, -40), facing the desk; a live XG capture at the
+    prompt read (-104, 0.5, -39.3).  This is therefore the verified player
+    approach point, not the old transposed (-30, 15, -104) elevator guess.
+    """
+
+    ROOM_ID = 0x8A
+    AVAILABLE_FLAG = 1849
+    OBTAINED_FLAG = 1660
+    APPROACH = Position(-104.0, 0.5, -40.0)
+
+    def __init__(self, memory, profile, flag_reader):
+        self.memory = memory
+        self.profile = profile
+        self.flag_reader = flag_reader
+        self.pose_source = NPCMemorySource(memory, profile)
+
+    def player_pose(self):
+        return self.pose_source.player_pose()
+
+    def entities(self):
+        room_id = self.memory.u16(
+            self.profile.current_floor_id, "PDA room id")
+        if room_id != self.ROOM_ID:
+            return []
+        try:
+            available = self.flag_reader.value(self.AVAILABLE_FLAG)
+            obtained = self.flag_reader.value(self.OBTAINED_FLAG)
+        except GameMemoryError:
+            return []
+        if available != 1 or obtained != 0:
+            return []
+        return [Entity(
+            category="item",
+            identity=("script-item", "pda"),
+            label="PDA",
+            position=self.APPROACH,
+            interaction_distance=10.0,
+            subtype="story",
+            metadata={
+                "available_flag": self.AVAILABLE_FLAG,
+                "obtained_flag": self.OBTAINED_FLAG,
+            },
+        )]
 
 
 class FilteredEntitySource:

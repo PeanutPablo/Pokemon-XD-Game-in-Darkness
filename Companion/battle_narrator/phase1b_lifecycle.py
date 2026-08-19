@@ -3,6 +3,7 @@ import wave
 from enum import Enum, auto
 
 from .memory import MemoryError
+from .messages import LocalDataError
 from .phase1b_connection import (
     ConnectionError,
     ProfileNotReady,
@@ -36,6 +37,7 @@ class LifecycleController:
         speech=None,
         health_factory=None,
         summary_factory=None,
+        battle_start_factory=None,
         dialogue_factory=None,
         npc_sound_factory=None,
         entity_nav_factory=None,
@@ -44,9 +46,11 @@ class LifecycleController:
         room_change_factory=None,
         choice_menu_factory=None,
         audio_guide_factory=None,
+        autowalk_factory=None,
         teleport_factory=None,
         party_summary_factory=None,
         heart_gauge_summary_factory=None,
+        party_slot_summary_factory=None,
         money_summary_factory=None,
         party_action_menu_factory=None,
         party_item_action_menu_factory=None,
@@ -63,9 +67,10 @@ class LifecycleController:
         purify_chamber_factory=None,
         terrain_footstep_factory=None,
         blocked_movement_factory=None,
-        gateon_bridge_factory=None,
         interaction_diagnostics_factory=None,
         npc_shadow_factory=None,
+        settings=None,
+        settings_menu=None,
     ):
         self.connection = connection
         self.tasks_factory = tasks_factory
@@ -78,6 +83,7 @@ class LifecycleController:
         self.speech = speech
         self.health_factory = health_factory
         self.summary_factory = summary_factory
+        self.battle_start_factory = battle_start_factory
         self.dialogue_factory = dialogue_factory
         self.npc_sound_factory = npc_sound_factory
         self.entity_nav_factory = entity_nav_factory
@@ -86,9 +92,11 @@ class LifecycleController:
         self.room_change_factory = room_change_factory
         self.choice_menu_factory = choice_menu_factory
         self.audio_guide_factory = audio_guide_factory
+        self.autowalk_factory = autowalk_factory
         self.teleport_factory = teleport_factory
         self.party_summary_factory = party_summary_factory
         self.heart_gauge_summary_factory = heart_gauge_summary_factory
+        self.party_slot_summary_factory = party_slot_summary_factory
         self.money_summary_factory = money_summary_factory
         self.party_action_menu_factory = party_action_menu_factory
         self.party_item_action_menu_factory = party_item_action_menu_factory
@@ -105,15 +113,25 @@ class LifecycleController:
         self.purify_chamber_factory = purify_chamber_factory
         self.terrain_footstep_factory = terrain_footstep_factory
         self.blocked_movement_factory = blocked_movement_factory
-        self.gateon_bridge_factory = gateon_bridge_factory
         self.interaction_diagnostics_factory = interaction_diagnostics_factory
         self.npc_shadow_factory = npc_shadow_factory
+        self.settings = settings
+        """Player settings, or None when the settings menu is disabled. Not
+        a factory like everything else here: it holds the player's choices,
+        so rebuilding it on every reattach would throw them away."""
+        self.settings_menu = settings_menu
+        if self.settings_menu is not None:
+            self.settings_menu.controller = self
+        self._feature_states = {}
+        """Last known on/off state per gated feature, so switching one off
+        can clear its reader exactly once instead of every tick."""
         self.state = LifecycleState.DOLPHIN_ABSENT
         self.tasks = None
         self.narrator = None
         self.menu_reader = None
         self.health_reader = None
         self.summary_reader = None
+        self.battle_start_reader = None
         self.dialogue_reader = None
         self.npc_sound_reader = None
         self.entity_nav_reader = None
@@ -122,9 +140,11 @@ class LifecycleController:
         self.room_change_reader = None
         self.choice_menu_reader = None
         self.audio_guide_reader = None
+        self.autowalk_reader = None
         self.teleport_reader = None
         self.party_summary_reader = None
         self.heart_gauge_summary_reader = None
+        self.party_slot_summary_reader = None
         self.money_summary_reader = None
         self.party_action_menu_reader = None
         self.party_item_action_menu_reader = None
@@ -141,7 +161,6 @@ class LifecycleController:
         self.purify_chamber_reader = None
         self.terrain_footstep_reader = None
         self.blocked_movement_reader = None
-        self.gateon_bridge_reader = None
         self.interaction_diagnostics_reader = None
         self.npc_shadow_reader = None
         self.attached_build = None
@@ -153,6 +172,14 @@ class LifecycleController:
     @property
     def interval(self):
         if self.state is LifecycleState.ACTIVE:
+            return self.active_interval
+        if self.settings_menu is not None and self.settings_menu.open:
+            # An open menu is someone pressing keys and waiting to be told
+            # what happened. The waiting states tick twice a second, which
+            # is right for "is Dolphin back yet" and far too slow for that
+            # -- and the menu is usable in those states by design, since it
+            # needs no game. No key is ever lost either way (they queue),
+            # but at half a second the announcements arrive in bursts.
             return self.active_interval
         return self.waiting_interval
 
@@ -175,6 +202,39 @@ class LifecycleController:
         self.tasks = None
         self.narrator = None
 
+    def _build(self, factory, name):
+        """Construct one optional reader, or disable just that reader if its
+        own local data cannot be loaded.
+
+        **Live-caught 2026-08-12.** `pda_menu.fsys` contains one entry whose
+        LZSS header reads `7f 00 53 53` instead of `4c 5a 53 53`, so
+        `parse_fsys` -- which decompresses every entry eagerly -- raised, and
+        `PdaCatalog` turned that into a `LocalDataError`. Nothing caught it
+        between here and `main`, whose handler logs, says "Battle narrator
+        stopped after an error." and exits 1. Observed three times in 61
+        seconds: the narrator attached, verified the disc, announced itself,
+        hit the PDA and died about a second later, every time.
+
+        One optional catalog being unreadable must not cost the player
+        battle narration, menus, dialogue and navigation. A reader that
+        cannot be built is left as `None`, which every call site already
+        handles -- that is exactly what passing no factory for it does.
+
+        Scoped to `LocalDataError` on purpose: that is the project's own
+        "local extracted data is missing or malformed" signal, and it is
+        raised only while building a catalog from a file. Anything else
+        still propagates, because a reader failing for a reason that is not
+        about its data is a real defect and should be loud."""
+        if factory is None:
+            return None
+        try:
+            return factory()
+        except LocalDataError as exc:
+            self.logger.error(
+                "%s disabled: %s. Every other feature continues; re-extract "
+                "this file to restore it.", name, exc)
+            return None
+
     def clear_menu_state(self, reason):
         if self.menu_reader is not None:
             self.menu_reader.clear(reason)
@@ -189,6 +249,11 @@ class LifecycleController:
         if self.summary_reader is not None:
             self.summary_reader.clear(reason)
         self.summary_reader = None
+
+    def clear_battle_start_state(self, reason):
+        if self.battle_start_reader is not None:
+            self.battle_start_reader.clear(reason)
+        self.battle_start_reader = None
 
     def clear_dialogue_state(self, reason):
         if self.dialogue_reader is not None:
@@ -235,6 +300,17 @@ class LifecycleController:
             self.audio_guide_reader.clear(reason)
         self.audio_guide_reader = None
 
+    def clear_autowalk_state(self, reason):
+        """Unlike the other clears, this one has a real side effect on the
+        GAME: it hands the controller back. Dropping the reader without
+        calling `clear` would leave the engine's stick override latched and
+        the player unable to move, so the reader is cleared first and
+        unconditionally -- including on the disconnect path, which is
+        exactly when it matters most."""
+        if self.autowalk_reader is not None:
+            self.autowalk_reader.clear(reason)
+        self.autowalk_reader = None
+
     def clear_teleport_state(self, reason):
         self.teleport_reader = None
 
@@ -248,6 +324,11 @@ class LifecycleController:
             self.heart_gauge_summary_reader.clear(reason)
         self.heart_gauge_summary_reader = None
 
+
+    def clear_party_slot_summary_state(self, reason):
+        if self.party_slot_summary_reader is not None:
+            self.party_slot_summary_reader.clear(reason)
+        self.party_slot_summary_reader = None
     def clear_money_summary_state(self, reason):
         if self.money_summary_reader is not None:
             self.money_summary_reader.clear(reason)
@@ -312,6 +393,65 @@ class LifecycleController:
             self.purify_chamber_reader.clear(reason)
         self.purify_chamber_reader = None
 
+    def _feature_enabled(self, key, reader=None, on_disable=None):
+        """Whether a settings-gated feature may run this tick.
+
+        Gating here rather than tearing the reader down keeps a toggle
+        cheap in both directions -- some of these readers load collision
+        geometry or decode sound files to be built. The falling edge is
+        detected so the reader can be cleared once, which matters for the
+        ones that accumulate state: footstep cadence and the last-announced
+        room would otherwise resume mid-stride when the player switches the
+        feature back on.
+
+        Defaults to enabled whenever settings are absent, so nothing here
+        depends on the settings menu being available."""
+        if self.settings is None:
+            return True
+        enabled = self.settings.enabled(key)
+        was_enabled = self._feature_states.get(key, True)
+        self._feature_states[key] = enabled
+        if was_enabled and not enabled:
+            self.logger.info("SETTINGS disabled %s", key)
+            if reader is not None:
+                reader.clear("disabled in settings")
+            if on_disable is not None:
+                on_disable()
+        elif enabled and not was_enabled:
+            self.logger.info("SETTINGS enabled %s", key)
+        return enabled
+
+    def poll_settings_menu(self):
+        """Polled in every lifecycle state, including before Dolphin is
+        running: the menu reads no emulated memory, and a player who wants
+        to turn the beacons down should not have to boot a game first.
+
+        Isolated like every reader -- the menu owns keys the game also
+        wants, so an exception that killed the poll loop would leave the
+        keyboard hook installed with nothing draining it."""
+        if self.settings_menu is None:
+            return
+        try:
+            self.settings_menu.poll_once()
+        except Exception as exc:
+            self.logger.warning("Isolated settings menu failure: %s", exc)
+
+    def _beacons_silenced(self):
+        """Whether every non-speech cue should be holding its tongue.
+
+        Two reasons, and they are the same reason: the player is listening
+        to speech that a repeating tone would sit on top of.
+
+        - A conversation is open.
+        - The settings menu is open. Requested by the project owner
+          2026-08-18, and the Sound library heading makes it acute -- that
+          screen exists to play cues one at a time so they can be told
+          apart, which the ambient beacons were talking over.
+        """
+        if self.dialogue_reader is not None and self.dialogue_reader.active:
+            return True
+        return self.settings_menu is not None and self.settings_menu.open
+
     def poll_menus(self):
         if self.menu_reader is not None:
             self.menu_reader.poll_once()
@@ -319,7 +459,13 @@ class LifecycleController:
     def poll_npc_sounds(self):
         if self.npc_sound_reader is None:
             return
-        if self.dialogue_reader is not None and self.dialogue_reader.active:
+        if not self._feature_enabled(
+                "sounds.beacons", self.npc_sound_reader,
+                # Stops whatever is mid-loop, so switching beacons off is
+                # silent immediately rather than after the current sound.
+                self.npc_sound_reader.suppress_for_dialogue):
+            return
+        if self._beacons_silenced():
             self.npc_sound_reader.suppress_for_dialogue()
             return
         try:
@@ -374,6 +520,9 @@ class LifecycleController:
     def poll_interaction_ready(self):
         if self.interaction_ready_reader is None:
             return
+        if not self._feature_enabled(
+                "speech.interaction_ready", self.interaction_ready_reader):
+            return
         dialogue_active = (
             self.dialogue_reader is not None and self.dialogue_reader.active
         )
@@ -387,6 +536,9 @@ class LifecycleController:
 
     def poll_room_change(self):
         if self.room_change_reader is None:
+            return
+        if not self._feature_enabled(
+                "speech.room_changes", self.room_change_reader):
             return
         try:
             self.room_change_reader.poll_once()
@@ -405,14 +557,34 @@ class LifecycleController:
     def poll_audio_guide(self):
         if self.audio_guide_reader is None:
             return
+        # Goes SILENT while a conversation or the settings menu is up, and
+        # resumes afterwards -- it is not turned off; see
+        # AudioGuideReader.poll_once.
         try:
-            self.audio_guide_reader.poll_once()
+            self.audio_guide_reader.poll_once(self._beacons_silenced())
         except MemoryError as exc:
             self.logger.debug("Isolated audio-guide read failure: %s", exc)
             self.audio_guide_reader.clear("audio-guide read failure")
 
+    def poll_autowalk(self):
+        """Isolated like every other reader, but with one difference: a read
+        failure here stops the walk rather than merely clearing state.
+        Steering blind is not a degraded mode worth having -- if the poll
+        that decides where to push the stick failed, the right response is
+        to stop pushing it."""
+        if self.autowalk_reader is None:
+            return
+        try:
+            self.autowalk_reader.poll_once()
+        except MemoryError as exc:
+            self.logger.debug("Isolated autowalk read failure: %s", exc)
+            self.autowalk_reader.clear("autowalk read failure")
+
     def poll_terrain_footsteps(self):
         if self.terrain_footstep_reader is None:
+            return
+        if not self._feature_enabled(
+                "sounds.footsteps", self.terrain_footstep_reader):
             return
         if self.dialogue_reader is not None and self.dialogue_reader.active:
             self.terrain_footstep_reader.clear("suppressed for dialogue")
@@ -425,6 +597,9 @@ class LifecycleController:
 
     def poll_blocked_movement(self):
         if self.blocked_movement_reader is None:
+            return
+        if not self._feature_enabled(
+                "sounds.blocked_cue", self.blocked_movement_reader):
             return
         if self.dialogue_reader is not None and self.dialogue_reader.active:
             self.blocked_movement_reader.clear("suppressed for dialogue")
@@ -468,16 +643,6 @@ class LifecycleController:
         except MemoryError as exc:
             self.logger.debug("Isolated NPC shadow read failure: %s", exc)
 
-    def poll_gateon_bridge(self):
-        if self.gateon_bridge_reader is None:
-            return
-        if self.dialogue_reader is not None and self.dialogue_reader.active:
-            return
-        try:
-            self.gateon_bridge_reader.poll_once()
-        except MemoryError as exc:
-            self.logger.debug("Isolated Gateon bridge read failure: %s", exc)
-
     def poll_teleport(self):
         if self.teleport_reader is None:
             return
@@ -491,6 +656,7 @@ class LifecycleController:
         self.clear_menu_state(reason)
         self.clear_health_state(reason)
         self.clear_summary_state(reason)
+        self.clear_battle_start_state(reason)
         self.clear_dialogue_state(reason)
         self.clear_npc_sound_state(reason)
         self.clear_entity_nav_state(reason)
@@ -500,9 +666,11 @@ class LifecycleController:
         self.clear_room_change_state(reason)
         self.clear_choice_menu_state(reason)
         self.clear_audio_guide_state(reason)
+        self.clear_autowalk_state(reason)
         self.clear_teleport_state(reason)
         self.clear_party_summary_state(reason)
         self.clear_heart_gauge_summary_state(reason)
+        self.clear_party_slot_summary_state(reason)
         self.clear_money_summary_state(reason)
         self.clear_party_action_menu_state(reason)
         self.clear_party_item_action_menu_state(reason)
@@ -514,6 +682,12 @@ class LifecycleController:
         self.clear_pda_state(reason)
         self.clear_pc_menu_state(reason)
         self.clear_purify_chamber_state(reason)
+        if self.settings_menu is not None:
+            # Silently, unlike a player-pressed close: Dolphin has gone, so
+            # there is nobody in front of the game to hear it, and the menu
+            # must not be left holding the arrow keys for a window that no
+            # longer exists.
+            self.settings_menu.clear(reason)
         if self.speech is not None:
             self.speech.clear()
         self.connection.close()
@@ -535,6 +709,12 @@ class LifecycleController:
                 LifecycleState.SHUTDOWN, "user-requested shutdown"
             )
             return
+
+        # First, and outside every state test: the settings menu is the one
+        # feature that does not need a game, a profile, or an attached
+        # Dolphin. It also owns keys Dolphin would otherwise act on, so it
+        # must keep draining them even in states where nothing else runs.
+        self.poll_settings_menu()
 
         if self.state in {
             LifecycleState.DOLPHIN_ABSENT,
@@ -593,83 +773,73 @@ class LifecycleController:
                 self.logger.info("Battle narrator connected.")
                 self.connection_announced = True
                 self.disconnection_announced = False
-            if self.menu_factory is not None:
-                self.menu_reader = self.menu_factory()
-            if self.health_factory is not None:
-                self.health_reader = self.health_factory()
-            if self.summary_factory is not None:
-                self.summary_reader = self.summary_factory()
-            if self.dialogue_factory is not None:
-                self.dialogue_reader = self.dialogue_factory()
-            if self.npc_sound_factory is not None:
-                self.npc_sound_reader = self.npc_sound_factory()
-            if self.entity_nav_factory is not None:
-                self.entity_nav_reader = self.entity_nav_factory()
-            if self.interaction_announcer_factory is not None:
-                self.interaction_announcer_reader = (
-                    self.interaction_announcer_factory())
-            if self.interaction_ready_factory is not None:
-                self.interaction_ready_reader = (
-                    self.interaction_ready_factory())
-            if self.room_change_factory is not None:
-                self.room_change_reader = self.room_change_factory()
-            if self.choice_menu_factory is not None:
-                self.choice_menu_reader = self.choice_menu_factory()
-            if self.audio_guide_factory is not None and self.entity_nav_reader is not None:
-                self.audio_guide_reader = self.audio_guide_factory(self.entity_nav_reader)
-            if self.teleport_factory is not None and self.entity_nav_reader is not None:
-                self.teleport_reader = self.teleport_factory(self.entity_nav_reader)
-            if self.party_summary_factory is not None:
-                self.party_summary_reader = self.party_summary_factory()
-            if self.heart_gauge_summary_factory is not None:
-                self.heart_gauge_summary_reader = self.heart_gauge_summary_factory()
-            if self.money_summary_factory is not None:
-                self.money_summary_reader = self.money_summary_factory()
-            if self.party_action_menu_factory is not None:
-                self.party_action_menu_reader = self.party_action_menu_factory()
-            if self.party_item_action_menu_factory is not None:
-                self.party_item_action_menu_reader = self.party_item_action_menu_factory()
-            if self.party_list_factory is not None:
-                self.party_list_reader = self.party_list_factory()
-            if self.bag_category_factory is not None:
-                self.bag_category_reader = self.bag_category_factory()
-            if self.bag_menu_factory is not None:
-                self.bag_menu_reader = self.bag_menu_factory()
-            if self.shop_buy_menu_factory is not None:
-                self.shop_buy_menu_reader = self.shop_buy_menu_factory()
-            if self.shop_buy_quantity_factory is not None:
-                self.shop_buy_quantity_reader = self.shop_buy_quantity_factory()
-            if self.shop_notification_factory is not None:
-                self.shop_notification_reader = self.shop_notification_factory()
-            if self.pause_menu_factory is not None:
-                self.pause_menu_reader = self.pause_menu_factory()
-            if self.stone_selection_menu_factory is not None:
-                self.stone_selection_menu_reader = self.stone_selection_menu_factory()
-            if self.pda_factory is not None:
-                self.pda_reader = self.pda_factory()
-            if self.pc_menu_factory is not None:
-                self.pc_menu_reader = self.pc_menu_factory()
-            if self.purify_chamber_factory is not None:
-                self.purify_chamber_reader = self.purify_chamber_factory()
-            if self.terrain_footstep_factory is not None:
-                self.terrain_footstep_reader = self.terrain_footstep_factory()
-            if self.blocked_movement_factory is not None:
-                self.blocked_movement_reader = self.blocked_movement_factory()
-            if self.gateon_bridge_factory is not None:
-                self.gateon_bridge_reader = self.gateon_bridge_factory()
-            if self.npc_shadow_factory is not None:
-                self.npc_shadow_reader = self.npc_shadow_factory()
-            if self.interaction_diagnostics_factory is not None:
-                self.interaction_diagnostics_reader = (
-                    self.interaction_diagnostics_factory())
-                if self.interaction_diagnostics_reader is not None:
-                    # The dialogue reader is owned here, and the diagnostic
-                    # needs it to tell "the A press opened a conversation"
-                    # from "the A press did nothing" -- which is the whole
-                    # point of the manual marker.
-                    self.interaction_diagnostics_reader.dialogue_active = (
-                        lambda: self.dialogue_reader is not None
-                        and self.dialogue_reader.active)
+            self.menu_reader = self._build(self.menu_factory, "menu")
+            self.health_reader = self._build(self.health_factory, "health")
+            self.summary_reader = self._build(self.summary_factory, "summary")
+            self.battle_start_reader = self._build(
+                self.battle_start_factory, "battle_start")
+            self.dialogue_reader = self._build(self.dialogue_factory, "dialogue")
+            self.npc_sound_reader = self._build(self.npc_sound_factory, "npc_sound")
+            self.entity_nav_reader = self._build(self.entity_nav_factory, "entity_nav")
+            self.interaction_announcer_reader = self._build(
+                self.interaction_announcer_factory, "interaction_announcer")
+            self.interaction_ready_reader = self._build(
+                self.interaction_ready_factory, "interaction_ready")
+            self.room_change_reader = self._build(self.room_change_factory, "room_change")
+            self.choice_menu_reader = self._build(self.choice_menu_factory, "choice_menu")
+            # These two take the entity-nav reader as an argument, so they
+            # are built through a lambda rather than passed directly -- the
+            # LocalDataError guard applies exactly the same way.
+            if self.entity_nav_reader is not None:
+                self.audio_guide_reader = self._build(
+                    self.audio_guide_factory
+                    and (lambda: self.audio_guide_factory(self.entity_nav_reader)),
+                    "audio_guide")
+                self.teleport_reader = self._build(
+                    self.teleport_factory
+                    and (lambda: self.teleport_factory(self.entity_nav_reader)),
+                    "teleport")
+                self.autowalk_reader = self._build(
+                    self.autowalk_factory
+                    and (lambda: self.autowalk_factory(self.entity_nav_reader)),
+                    "autowalk")
+            self.party_summary_reader = self._build(self.party_summary_factory, "party_summary")
+            self.heart_gauge_summary_reader = self._build(self.heart_gauge_summary_factory, "heart_gauge_summary")
+            self.party_slot_summary_reader = self._build(
+                self.party_slot_summary_factory, "party_slot_summary")
+            self.money_summary_reader = self._build(self.money_summary_factory, "money_summary")
+            self.party_action_menu_reader = self._build(self.party_action_menu_factory, "party_action_menu")
+            self.party_item_action_menu_reader = self._build(self.party_item_action_menu_factory, "party_item_action_menu")
+            self.party_list_reader = self._build(self.party_list_factory, "party_list")
+            self.bag_category_reader = self._build(self.bag_category_factory, "bag_category")
+            self.bag_menu_reader = self._build(self.bag_menu_factory, "bag_menu")
+            self.shop_buy_menu_reader = self._build(self.shop_buy_menu_factory, "shop_buy_menu")
+            self.shop_buy_quantity_reader = self._build(self.shop_buy_quantity_factory, "shop_buy_quantity")
+            self.shop_notification_reader = self._build(self.shop_notification_factory, "shop_notification")
+            self.pause_menu_reader = self._build(self.pause_menu_factory, "pause_menu")
+            self.stone_selection_menu_reader = self._build(self.stone_selection_menu_factory, "stone_selection_menu")
+            self.pda_reader = self._build(self.pda_factory, "pda")
+            self.pc_menu_reader = self._build(self.pc_menu_factory, "pc_menu")
+            self.purify_chamber_reader = self._build(self.purify_chamber_factory, "purify_chamber")
+            self.terrain_footstep_reader = self._build(self.terrain_footstep_factory, "terrain_footstep")
+            self.blocked_movement_reader = self._build(self.blocked_movement_factory, "blocked_movement")
+            self.npc_shadow_reader = self._build(self.npc_shadow_factory, "npc_shadow")
+            self.interaction_diagnostics_reader = self._build(
+                self.interaction_diagnostics_factory, "interaction_diagnostics")
+            if self.interaction_diagnostics_reader is not None:
+                # The dialogue reader is owned here, and the diagnostic
+                # needs it to tell "the A press opened a conversation"
+                # from "the A press did nothing" -- which is the whole
+                # point of the manual marker.
+                self.interaction_diagnostics_reader.dialogue_active = (
+                    lambda: self.dialogue_reader is not None
+                    and self.dialogue_reader.active)
+            if self.settings is not None:
+                # Every reader above is brand new, holding its constructor
+                # defaults. The player's choices live in the store, not in
+                # the readers, so they are pushed back in here -- on the
+                # first attach and on every reattach after a disconnect.
+                self.settings.apply_all(self)
             self.tasks = self.tasks_factory()
             self.transition(
                 LifecycleState.GSMSG_WAITING,
@@ -690,10 +860,10 @@ class LifecycleController:
                 self.poll_room_change()
                 self.poll_choice_menu()
                 self.poll_audio_guide()
+                self.poll_autowalk()
                 self.poll_teleport()
                 self.poll_terrain_footsteps()
                 self.poll_blocked_movement()
-                self.poll_gateon_bridge()
                 self.poll_npc_shadow()
                 self.poll_interaction_diagnostics()
                 self.tasks.resolve()
@@ -748,10 +918,10 @@ class LifecycleController:
                 self.poll_room_change()
                 self.poll_choice_menu()
                 self.poll_audio_guide()
+                self.poll_autowalk()
                 self.poll_teleport()
                 self.poll_terrain_footsteps()
                 self.poll_blocked_movement()
-                self.poll_gateon_bridge()
                 self.poll_npc_shadow()
                 self.poll_interaction_diagnostics()
                 self.narrator.poll_once()
@@ -795,6 +965,13 @@ class LifecycleController:
                 except MemoryError as exc:
                     self.logger.debug("Isolated HP summary read failure: %s", exc)
                     self.summary_reader.clear("HP summary read failure")
+            if self.battle_start_reader is not None:
+                try:
+                    self.battle_start_reader.poll_once()
+                except MemoryError as exc:
+                    self.logger.debug(
+                        "Isolated battle start read failure: %s", exc)
+                    self.battle_start_reader.clear("battle start read failure")
             if self.party_summary_reader is not None:
                 try:
                     self.party_summary_reader.poll_once()
@@ -807,6 +984,14 @@ class LifecycleController:
                 except MemoryError as exc:
                     self.logger.debug("Isolated Heart Gauge read failure: %s", exc)
                     self.heart_gauge_summary_reader.clear("Heart Gauge read failure")
+            if self.party_slot_summary_reader is not None:
+                try:
+                    self.party_slot_summary_reader.poll_once()
+                except MemoryError as exc:
+                    self.logger.debug(
+                        "Isolated party slot read failure: %s", exc)
+                    self.party_slot_summary_reader.clear(
+                        "party slot read failure")
             if self.money_summary_reader is not None:
                 try:
                     self.money_summary_reader.poll_once()

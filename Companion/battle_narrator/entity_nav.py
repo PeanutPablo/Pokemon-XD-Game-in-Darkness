@@ -33,8 +33,10 @@ Coordinate system and angle transform (documented per project requirement):
     project, so a neutral "distance N" scale is used instead.
 """
 import math
+import time
 from dataclasses import dataclass
 
+from .memory import MemoryError as GameMemoryError
 from .speech import SpeechEventClass
 from .talk_predicate import REJECT_FACING, REJECT_WALL
 
@@ -110,7 +112,7 @@ def describe_entity(profile, category_key, entity, pose, include_category=True):
     Jovi...", "NPC. Krane...", "NPC. Lily..." -- which is pure padding in
     front of the thing the player actually wants, on the hotkey they press
     most. The category is still announced when it CHANGES (switching
-    categories, and on refresh), which is where it carries information."""
+    categories), which is where it carries information."""
     horizontal, forward, right, vertical = relative_geometry(pose, entity.position)
     clock = clock_position(
         horizontal, forward, right, profile.entity_nav_same_position_threshold
@@ -189,7 +191,17 @@ class NavState:
 
 
 class EntityNavigator:
-    """Owns category/selection state and the five foreground-scoped hotkeys.
+    """Owns category/selection state and the five foreground-scoped hotkeys:
+    next, prev, next_category, prev_category, repeat.
+
+    There is no refresh action. It was removed on 2026-08-16 at the project
+    owner's request, once it emerged that its chord had always been
+    swallowed by `repeat`'s (see profile.default_autowalk_hotkey), so it had
+    never run in production. Its purpose -- picking up entities that
+    appeared after a category was activated, which next/prev cannot reach
+    because they cycle the order frozen at activation -- is still served by
+    switching category away and back, since `_activate_category` re-reads
+    the live list every time.
 
     `sources` maps category key -> an object with `.entities()` (list of
     Entity, already filtered to valid/present/interactable by the source)
@@ -200,7 +212,7 @@ class EntityNavigator:
 
     def __init__(
         self, memory, profile, sources, hotkeys, speech, logger,
-        collision_probe=None,
+        clock=time.monotonic,
     ):
         self.memory = memory
         self.profile = profile
@@ -208,14 +220,38 @@ class EntityNavigator:
         self.hotkeys = hotkeys
         self.speech = speech
         self.logger = logger
-        self.collision_probe = collision_probe
+        self.clock = clock
         self.state = NavState()
         self.context_valid = False
+        self._last_position = None
+        """Player position at the previous poll, for the stand-still test."""
+        self._stationary_since = None
+        """When the player last stopped moving, or None while they are
+        moving (or while their position could not be read)."""
+        self._announced_this_stop = False
+        """Whether the current stop has already produced an announcement --
+        manual or automatic. Reset when the player moves again, which is
+        what makes the auto-repeat fire once per stop rather than every
+        `entity_nav_auto_repeat_seconds` for as long as they stand there."""
+        self.auto_repeat_enabled = True
+        """Settings-menu override for the stand-still re-announcement. The
+        manual hotkeys are deliberately unaffected: this switches off the
+        UNPROMPTED repeat, not the ability to ask for one."""
+        self.auto_repeat_seconds = None
+        """Settings-menu override for the stand-still delay, or None to use
+        the profile's own `entity_nav_auto_repeat_seconds`. The profile is a
+        frozen dataclass and is never mutated."""
 
     def clear(self, reason):
         self.state = NavState()
         self.context_valid = False
+        self._reset_auto_repeat()
         self.logger.debug("ENTITY NAV cleared: %s", reason)
+
+    def _reset_auto_repeat(self):
+        self._last_position = None
+        self._stationary_since = None
+        self._announced_this_stop = False
 
     def _window_open(self):
         p = self.profile
@@ -241,15 +277,18 @@ class EntityNavigator:
         # them, carry on down the list" silently threw the list away every
         # time, and the player had to walk back down it from the top.
         #
-        # Nothing goes stale by keeping it: `_cycle`, `_repeat` and
-        # `_refresh` all re-read the live entity list every press and
-        # re-resolve the selection by identity, falling back when it has
-        # genuinely gone. `context_valid` still gates the ACTIONS, so
+        # Nothing goes stale by keeping it: `_cycle` and `_repeat` both
+        # re-read the live entity list every press and re-resolve the
+        # selection by identity, falling back when it has genuinely gone. `context_valid` still gates the ACTIONS, so
         # nothing responds to the hotkeys while a menu or dialogue is up.
         self.context_valid = valid
         self.state.floor_id = floor_id
 
     def _speak(self, text):
+        # Any announcement satisfies the current stop, so a deliberate press
+        # while standing still is not followed 1.5 seconds later by the same
+        # sentence again. See `_poll_auto_repeat`.
+        self._announced_this_stop = True
         self.speech.emit(SpeechEventClass.ENTITY_NAV, text, deduplicate=False, interrupt=True)
         self.logger.info("ENTITY NAV %s", text)
 
@@ -257,14 +296,32 @@ class EntityNavigator:
         available = []
         for key in self.profile.entity_nav_category_keys:
             source = self.sources.get(key)
-            if source is not None and source.entities():
+            if source is not None and self._source_entities(key):
                 available.append(key)
         return available
+
+    def _source_entities(self, key):
+        """Read one category without letting it erase unrelated categories.
+
+        Some rooms legitimately have no floor-character array. The NPC
+        source reports that as an unreadable pointer, but static treasures,
+        exits and interactables remain valid and useful. Treat a failed
+        category as temporarily empty and continue surveying the others.
+        """
+        source = self.sources.get(key)
+        if source is None:
+            return []
+        try:
+            return source.entities()
+        except (GameMemoryError, MemoryError) as exc:
+            self.logger.debug(
+                "ENTITY NAV source %s unavailable: %s", key, exc)
+            return []
 
     def _activate_category(self, key):
         p = self.profile
         source = self.sources[key]
-        entities = source.entities()
+        entities = self._source_entities(key)
         pose = source.player_pose()
         ordered = sorted(
             entities, key=lambda entity: relative_geometry(pose, entity.position)[0]
@@ -302,7 +359,10 @@ class EntityNavigator:
             self._switch_category(1)
             return
         source = self.sources[self.state.category_key]
-        entities = {entity.identity: entity for entity in source.entities()}
+        entities = {
+            entity.identity: entity
+            for entity in self._source_entities(self.state.category_key)
+        }
         live_order = [
             identity for identity in self.state.frozen_order if identity in entities
         ]
@@ -322,44 +382,14 @@ class EntityNavigator:
             include_category=False,
         ))
 
-    def _refresh(self):
-        """Re-scan the current category (picks up entities that appeared
-        since it was activated -- next/prev only ever cycle the frozen
-        order captured at activation time) while preserving the current
-        selection if it's still present, rather than jumping back to
-        nearest like a fresh activation would."""
-        key = self.state.category_key
-        if key is None or key not in self.sources:
-            self._switch_category(1)
-            return
-        p = self.profile
-        source = self.sources[key]
-        entities = source.entities()
-        pose = source.player_pose()
-        ordered = sorted(
-            entities, key=lambda entity: relative_geometry(pose, entity.position)[0]
-        )
-        self.state.frozen_order = tuple(entity.identity for entity in ordered)
-        by_identity = {entity.identity: entity for entity in ordered}
-        plural = dict(zip(
-            p.entity_nav_category_keys, p.entity_nav_category_plural_labels
-        ))[key]
-        header = f"{plural}. {len(ordered)} available."
-        if not ordered:
-            self.state.selected_identity = None
-            self._speak(header)
-            return
-        if self.state.selected_identity not in by_identity:
-            self.state.selected_identity = ordered[0].identity
-        selected = by_identity[self.state.selected_identity]
-        self._speak(header + " " + describe_entity(
-            p, key, selected, pose, include_category=False))
-
     def _repeat(self):
         if self.state.category_key is None or self.state.selected_identity is None:
             return
         source = self.sources[self.state.category_key]
-        entities = {entity.identity: entity for entity in source.entities()}
+        entities = {
+            entity.identity: entity
+            for entity in self._source_entities(self.state.category_key)
+        }
         entity = entities.get(self.state.selected_identity)
         if entity is None:
             self.state.selected_identity = None
@@ -367,6 +397,78 @@ class EntityNavigator:
             return
         pose = source.player_pose()
         self._speak(describe_entity(self.profile, self.state.category_key, entity, pose))
+
+    def _poll_auto_repeat(self):
+        """Re-announce the current selection once the player has stood still
+        for `entity_nav_auto_repeat_seconds`.
+
+        The case this serves: you walk toward something, stop, and want to
+        know where it is now without taking a hand off the stick to press
+        repeat. So it is keyed to STOPPING, not to elapsed time -- it fires
+        once per stop and re-arms only when the player moves again.
+
+        Deliberately quiet in every ambiguous case. It never speaks when
+        there is no selection, when the selection has gone missing (unlike
+        the manual repeat, which says so and clears -- an unprompted
+        announcement should not act on what might be a transient bad read),
+        or when the player's position cannot be read at all. Nothing here
+        changes selection state; it only reads and speaks."""
+        p = self.profile
+        if not self.auto_repeat_enabled:
+            # Tracking is dropped rather than merely muted, so switching it
+            # back on starts from the player's next stop instead of firing
+            # immediately off a stop that happened while it was off.
+            self._reset_auto_repeat()
+            return
+        if self.state.category_key is None or self.state.selected_identity is None:
+            self._reset_auto_repeat()
+            return
+        source = self.sources.get(self.state.category_key)
+        if source is None:
+            self._reset_auto_repeat()
+            return
+        try:
+            pose = source.player_pose()
+        except (GameMemoryError, MemoryError):
+            # Same convention as the rest of this project: a transient bad
+            # read resets local state rather than propagating. Treated as
+            # "position unknown", so the next good read starts a fresh stop
+            # instead of counting the gap as standing still.
+            self._reset_auto_repeat()
+            return
+        position = pose.position
+        previous, self._last_position = self._last_position, position
+        if previous is None:
+            return
+        moved = math.hypot(position.x - previous.x, position.z - previous.z)
+        if moved >= p.entity_nav_auto_repeat_movement_epsilon:
+            self._stationary_since = None
+            self._announced_this_stop = False
+            return
+        now = self.clock()
+        if self._stationary_since is None:
+            self._stationary_since = now
+            return
+        if self._announced_this_stop:
+            return
+        delay = (
+            p.entity_nav_auto_repeat_seconds
+            if self.auto_repeat_seconds is None else self.auto_repeat_seconds
+        )
+        if now - self._stationary_since < delay:
+            return
+        entities = {
+            entity.identity: entity
+            for entity in self._source_entities(self.state.category_key)
+        }
+        entity = entities.get(self.state.selected_identity)
+        if entity is None:
+            # Silent, and the selection is left alone -- see this method's
+            # own docstring.
+            self._announced_this_stop = True
+            return
+        self._speak(describe_entity(
+            p, self.state.category_key, entity, pose))
 
     def poll_once(self, dialogue_active=False):
         self._refresh_context(dialogue_active)
@@ -378,11 +480,12 @@ class EntityNavigator:
         next_category_fired = self.hotkeys["next_category"].poll()
         prev_category_fired = self.hotkeys["prev_category"].poll()
         repeat_fired = self.hotkeys["repeat"].poll()
-        refresh_fired = self.hotkeys["refresh"].poll()
-        if self.collision_probe is not None:
-            self.collision_probe.poll_once(
-                self.state.floor_id, self.context_valid)
         if not self.context_valid:
+            # A menu or dialogue is up. Drop the stand-still tracking rather
+            # than let it accumulate: the player is not "standing still" in
+            # any sense worth announcing, and closing the menu should not be
+            # met with an immediate repeat.
+            self._reset_auto_repeat()
             return
         if next_category_fired:
             self._switch_category(1)
@@ -394,5 +497,6 @@ class EntityNavigator:
             self._cycle(-1)
         elif repeat_fired:
             self._repeat()
-        elif refresh_fired:
-            self._refresh()
+        # After the hotkey actions, so a press this tick has already marked
+        # the stop as announced and cannot be echoed a moment later.
+        self._poll_auto_repeat()

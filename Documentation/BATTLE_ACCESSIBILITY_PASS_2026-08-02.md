@@ -11,7 +11,7 @@
 - Double send-out messages 20305 and 20313 use the appropriate trainer party's first two populated records. Historical live logs prove those records held the exact four Pok?mon displayed for the relevant battles even while transient actor globals were null.
 - Post-battle NPC speech continues through the general dialogue reader and scripted-speaker-name resolver; it is not battle-message text and should not be duplicated in the battle narrator.
 
-## Ctrl+Shift+H ownership result
+## Ctrl+H ownership result
 
 The active array alternates ownership by raw slot: player 0, opponent 1, player 2, opponent 3. The hotkey intentionally reorders it to `0, 2, 1, 3`, so the spoken first and second Pok?mon are the player's and the spoken third and fourth are the opponent's. This is regression-tested.
 

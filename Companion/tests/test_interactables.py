@@ -400,7 +400,6 @@ class RealTableTests(unittest.TestCase):
         self.assertEqual(counts.get(VENDING), 1)
         self.assertEqual(counts.get(FALL), 8)
         self.assertEqual(counts.get(SHRINE), 1)
-
     @unittest.skipUnless(HAVE_ASSET, "interactables.json not generated")
     def test_tako_machine_is_classified_as_a_healing_machine(self):
         tako = [r for r in self.records if r.handler == "tako_machine"]

@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
+sys.path.insert(0, str(Path(__file__).parent))
+
+import pinned_build
 
 from battle_narrator.pda import (
     MAIL_CONTENT_MENU_ID, MAIL_ID_ADDRESS, MAIL_OPEN_FLAG_ADDRESS,
@@ -14,7 +17,9 @@ from battle_narrator.pda import (
     SHADOW_LIST_OBJECT_ADDRESS, SHADOW_LIST_RECORDS_OFFSET,
     SHADOW_MONITOR_MENU_ID, SPOT_DATA_ADDRESS, SPOT_DATA_COUNT_ADDRESS,
     SPOT_MONITOR_MENU_ID, SPOT_RECORD_SIZE, WORLD_MAP_DATA_ADDRESS,
-    WORLD_MAP_FLAG_OFFSET, WORLD_MAP_RECORD_SIZE, PdaCatalog, PdaReader,
+    WORLD_MAP_FLAG_OFFSET, WORLD_MAP_RECORD_SIZE, STRATEGY_CURSOR_ADDRESS,
+    STRATEGY_LIST_MENU_IDS, STRATEGY_LIST_OBJECT_ADDRESS,
+    STRATEGY_LIST_RECORDS_OFFSET, PdaCatalog, PdaReader,
 )
 from battle_narrator.profile import XD_US_REV0 as p
 
@@ -45,7 +50,7 @@ class Memory:
 
 class Catalog:
     def text(self, message_id):
-        return {15184:"Shadow Monitor",15359:"Spot Monitor",15383:"Rock",
+        return {15182:"Strategy Memo",15184:"Shadow Monitor",15359:"Spot Monitor",15383:"Rock",
                 15384:"Oasis",15385:"Cave"}[message_id]
 
     def home_option(self, cursor):
@@ -133,7 +138,15 @@ class PdaHomeReaderTests(unittest.TestCase):
         with self.assertRaises(Exception): self.reader.poll_once()
 
 
+@unittest.skipUnless(pinned_build.is_vanilla_us(), pinned_build.SKIP_REASON)
 class PdaCatalogTests(unittest.TestCase):
+    """P*DA text read from the installed archive.
+
+    Pinned to vanilla US XD's wording, so it skips on another build --
+    see pinned_build.py. Only this class reads shipped text; the rest of
+    this module drives the reader with synthetic messages and runs
+    everywhere."""
+
     def test_owned_catalog_resolves_current_mail(self):
         path=Path(__file__).parents[1]/"_dialogue_extraction/pda/files/pda_menu.fsys"
         catalog=PdaCatalog(path); sender,subject,body=catalog.mail(2,"LEON")
@@ -173,8 +186,9 @@ class PdaMonitorReaderTests(unittest.TestCase):
         self.backend.put(p.window_manager+p.window_list_offset,be32(addresses[0]))
 
     def species(self, names):
-        base=0x80110000
-        self.backend.put(POKEMON_DATA_NUMBER,be32(max(names)+1))
+        base,count_pointer=0x80110000,0x8010F000
+        self.backend.put(POKEMON_DATA_NUMBER,be32(count_pointer))
+        self.backend.put(count_pointer,be32(max(names)+1))
         self.backend.put(POKEMON_DATA,be32(base))
         messages={}
         for species_id,(message_id,name) in names.items():
@@ -186,7 +200,9 @@ class PdaMonitorReaderTests(unittest.TestCase):
     def test_spot_monitor_reads_game_locations_species_and_flag_values(self):
         self.windows(PDA_PARENT_MENU_ID,SPOT_MONITOR_MENU_ID)
         records=0x80120000
-        self.backend.put(SPOT_DATA_COUNT_ADDRESS,be32(3))
+        count_pointer=0x8011F000
+        self.backend.put(SPOT_DATA_COUNT_ADDRESS,be32(count_pointer))
+        self.backend.put(count_pointer,be32(3))
         self.backend.put(SPOT_DATA_ADDRESS,be32(records))
         world=0x80121000
         self.backend.put(WORLD_MAP_DATA_ADDRESS,be32(world))
@@ -227,7 +243,9 @@ class PdaMonitorReaderTests(unittest.TestCase):
     def test_spot_monitor_omits_locked_world_map_spots(self):
         self.windows(PDA_PARENT_MENU_ID,SPOT_MONITOR_MENU_ID)
         records,world=0x80120000,0x80121000
-        self.backend.put(SPOT_DATA_COUNT_ADDRESS,be32(3))
+        count_pointer=0x8011F000
+        self.backend.put(SPOT_DATA_COUNT_ADDRESS,be32(count_pointer))
+        self.backend.put(count_pointer,be32(3))
         self.backend.put(SPOT_DATA_ADDRESS,be32(records))
         self.backend.put(WORLD_MAP_DATA_ADDRESS,be32(world))
         values={10:2,11:27,40:1,41:0,42:0}
@@ -240,6 +258,23 @@ class PdaMonitorReaderTests(unittest.TestCase):
         reader.poll_once()
         self.assertEqual(self.speech.calls[0][0][1],
                          "Spot Monitor. Rock: Sandshrew: 2")
+
+    def test_strategy_memo_tracks_native_sorted_species_and_cursor(self):
+        self.windows(*STRATEGY_LIST_MENU_IDS)
+        obj,records=0x80140000,0x80141000
+        self.backend.put(STRATEGY_LIST_OBJECT_ADDRESS,be32(obj))
+        self.backend.put(obj+STRATEGY_LIST_RECORDS_OFFSET,be32(records))
+        self.backend.put(records,(27).to_bytes(2,"big"))
+        self.backend.put(records+2,(104).to_bytes(2,"big"))
+        runtime=self.species({27:(60027,"Sandshrew"),104:(60104,"Cubone")})
+        reader=PdaReader(self.memory,p,Catalog(),self.speech,self.log,
+                         FlagReader({}),runtime)
+        self.backend.put(STRATEGY_CURSOR_ADDRESS,b"\0\0\0\0")
+        reader.poll_once()
+        self.backend.put(STRATEGY_CURSOR_ADDRESS,b"\0\1\0\0")
+        reader.poll_once()
+        self.assertEqual([call[0][1] for call in self.speech.calls],
+                         ["Strategy Memo. Sandshrew", "Strategy Memo. Cubone"])
 
 
 if __name__ == "__main__": unittest.main()

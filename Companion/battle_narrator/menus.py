@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import re
 
+from .battle_targets import TargetFactsSource, status_panel_hp, target_detail
 from .memory import MemoryError, require_range
 from .resolver import display_case, normalize
 from .speech import SpeechEventClass
@@ -8,6 +9,37 @@ from .speech import SpeechEventClass
 
 class MenuReadError(MemoryError):
     pass
+
+
+class GameDataMismatch(MenuReadError):
+    """The installed game data describes a different build than is running.
+
+    A subclass so every existing handler keeps treating it as an ordinary
+    rejected sample -- refusing to speak is still the correct immediate
+    behaviour, because the alternative is announcing "MEGA PUNCH" for Zen
+    Headbutt. What it adds is a name for the one cause that will never fix
+    itself by waiting, so the reader can say so out loud instead of going
+    quiet and leaving the player with no idea why.
+
+    Raised only where a LIVE reading and the OFFLINE table disagree about
+    the same move ID. That combination cannot be a transient: both are
+    read from the same settled sample, and a partially-built menu fails
+    the pointer and PP checks well before this one.
+
+    Seen twice for real, in both directions: a vanilla extraction against
+    XG (live 'Zen Headbutt' / local 'MEGA PUNCH', 2026-08-12) and an XG
+    extraction against vanilla (live 'SOFTBOILED' / local 'Psychic Fangs',
+    2026-08-13). Only 192 of 373 move IDs name the same move in both
+    builds, so most of the menu goes silent while the handful of shared
+    IDs -- Substitute, Fury Cutter -- keep working, which is a genuinely
+    confusing symptom to be left alone with."""
+
+
+GAME_DATA_MISMATCH_ADVICE = (
+    "Accessibility game data does not match the game that is running, so "
+    "move names cannot be read. Re-run the game data setup against the "
+    "disc image you are playing."
+)
 
 
 @dataclass(frozen=True)
@@ -26,7 +58,7 @@ class CommandFocus:
 
 @dataclass(frozen=True)
 class TitleScreenFocus:
-    label: str = "Pokemon XD: Gale of Darkness; Press Start."
+    label: str = "Pokemon XD: Gale of Darkness. Press A to start."
 
 
 @dataclass(frozen=True)
@@ -122,12 +154,17 @@ class VsTargetPanel:
     menu_id: int
     actor: int
     targets: tuple
+    """(button, name, detail) per selectable target. `detail` is
+    `battle_targets.target_detail`'s clause -- level, HP, percent and
+    status -- or "" when none of it could be established, in which case
+    the sentence is exactly what it used to be."""
 
     @property
     def speech(self):
         items = ". ".join(
             f"{button}, {display_case(name)}"
-            for button, name in self.targets
+            + (f", {detail}" if detail else "")
+            for button, name, detail in self.targets
         )
         return f"Targets. {items}."
 
@@ -140,10 +177,15 @@ class StoryTargetFocus:
     slot: int
     name: str
     ownership: str
+    detail: str = ""
+    """Trailing and defaulted so every existing construction site stays
+    valid -- the same reason `health.BattlerSample.owner` and
+    `party.PartySlot.species` are placed last."""
 
     @property
     def speech(self):
-        return f"Target: {self.ownership} {display_case(self.name)}."
+        suffix = f", {self.detail}" if self.detail else ""
+        return f"Target: {self.ownership} {display_case(self.name)}{suffix}."
 
 
 class WindowListWalker:
@@ -213,6 +255,11 @@ class ProductionMenuReader:
         # without a renderer therefore keeps its current behaviour of
         # "this screen is not a progress notification".
         self.message_renderer = message_renderer
+        # Battle-target enrichment (level and major status). Constructed
+        # here rather than injected because it needs nothing this reader
+        # does not already hold, and it is read-only and per-slot tolerant
+        # -- see battle_targets.TargetFactsSource.
+        self.target_facts = TargetFactsSource(memory, profile)
         self.walker = WindowListWalker(memory, profile)
         self.identity = None
         self.yes_no_prompt_key = None
@@ -220,6 +267,31 @@ class ProductionMenuReader:
         self.vs_actor = None
         self.vs_actor_name = None
         self.story_actor = None
+
+    def _displayed_move(self, embedded_id, live_name):
+        """Resolve the move the menu displays, which may be a Shadow override.
+
+        Ordinary Pokemon use the ID in their embedded move slot. Shadow
+        Pokemon can leave that ordinary ID there while the menu displays a
+        different move. In that case the live name is resolved back through
+        this build's own move table. An absent or non-unique name remains a
+        hard mismatch; it is never guessed.
+        """
+        embedded_name, _suffix = self.move_data.resolve(embedded_id)
+        if normalize(live_name) == normalize(embedded_name):
+            return embedded_id, embedded_name
+        find_id = getattr(self.move_data, "find_id", None)
+        displayed_id = (
+            find_id(live_name, self.profile.maximum_move_id)
+            if find_id is not None else None
+        )
+        if displayed_id is None:
+            raise GameDataMismatch(
+                f"move-name disagreement live={live_name!r} "
+                f"local={embedded_name!r}"
+            )
+        displayed_name, _suffix = self.move_data.resolve(displayed_id)
+        return displayed_id, displayed_name
 
     def clear(self, reason="menu state cleared"):
         if self.identity is not None:
@@ -283,19 +355,30 @@ class ProductionMenuReader:
             "name keyboard hover row",
         )
         rows = (
-            ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"),
+            None,  # row 0 uses the sparse coordinate table below
             None,  # row 1 uses the sparse coordinate table below
             ("U", "V", "W", "X", "Y", "Z", "Space", "Space", "Space", "Space"),
             ("1", "2", "3", "4", "5", "Exclamation mark", "Question mark", "Male symbol", "Female symbol", "Space"),
             ("6", "7", "8", "9", "0", "Left double quote", "Right double quote", "Left single quote", "Right single quote", "Space"),
             ("Space", "Space", "Space", "Space", "Space", "Slash", "Hyphen", "Ellipsis", "Period", "Comma"),
         )
-        second_letter_row = {
-            0: "K", 1: "L", 2: "M", 3: "N", 4: "O", 5: "P",
-            # Live selections: Q@7, R@8, S@10. Raw 6 and 9 are gaps.
-            7: "Q", 8: "R", 10: "S", 11: "T",
+        first_letter_row = {
+            0: "A", 1: "B", 2: "C", 3: "D", 4: "E", 5: "Space",
+            # XG live entry, 2026-08-13: selecting the cell announced as F
+            # at column 5 inserted Space; column 6 inserted F.  The row has
+            # the same visual separator after its first five letters that
+            # row 1 has after O.
+            6: "F", 7: "G", 8: "H", 9: "I", 10: "J",
         }
-        if row == 1 and column in second_letter_row:
+        second_letter_row = {
+            0: "K", 1: "L", 2: "M", 3: "N", 4: "O", 5: "Space",
+            # Name Rater live entry, 2026-08-12: selecting 5 inserted Space;
+            # 6 inserted P; 7-10 inserted Q-T respectively.
+            6: "P", 7: "Q", 8: "R", 9: "S", 10: "T",
+        }
+        if row == 0 and column in first_letter_row:
+            label = first_letter_row[column]
+        elif row == 1 and column in second_letter_row:
             label = second_letter_row[column]
         elif row == 6:
             label = "Back"
@@ -316,7 +399,7 @@ class ProductionMenuReader:
         return NameKeyboardFocus(
             node.address,
             node.menu_id,
-            row * 10 + column,
+            (row << 16) | column,
             label,
             entered_name,
         )
@@ -359,6 +442,13 @@ class ProductionMenuReader:
             source = self.title_messages.get(message_id, "")
             text = re.sub(r"\[[^]]+\]", " ", source)
             text = " ".join(text.split()).strip()
+            if not text and self.message_renderer is not None:
+                # Most in-game confirmations are backed by the currently
+                # loaded runtime message table, not the small title-screen
+                # catalog above.  Resolve that live text instead of growing
+                # a list of prompt IDs for every place the reusable Yes/No
+                # widget can appear.
+                text = self.message_renderer.text(message_id) or ""
             return message_id, text
         return 0, ""
 
@@ -470,20 +560,24 @@ class ProductionMenuReader:
             raise MenuReadError(f"Bag numeric-input value invalid: {value}")
         return CommandFocus(node.address, node.menu_id, value, str(value))
 
-    def yes_no_focus(self, node, include_prompt=True, initial_prefix=""):
+    def yes_no_focus(self, node, include_prompt=True, initial_prefix="",
+                     repeat_prompt=False, prompt_override=None):
         base, cursor, logical = self._cursor(node.address)
         if logical not in (0, 1):
             raise MenuReadError(
                 f"yes/no cursor invalid base={base} cursor={cursor}"
             )
         message_id, prompt = self.active_gsmsg_prompt()
+        if prompt_override:
+            prompt = prompt_override
         choice = ("Yes", "No")[logical]
         prompt_key = (node.address, message_id, prompt)
         first_focus = prompt_key != self.yes_no_prompt_key
         self.yes_no_prompt_key = prompt_key
         label = (
             f"{prompt} {choice}"
-            if first_focus and include_prompt and prompt else choice
+            if (first_focus or repeat_prompt) and include_prompt and prompt
+            else choice
         )
         if first_focus and initial_prefix:
             label = f"{initial_prefix}. {label}"
@@ -491,8 +585,6 @@ class ProductionMenuReader:
 
     def title_notification_focus(self, title_status):
         p = self.profile
-        if title_status not in p.title_notification_statuses:
-            return None
         manager = self.memory.u32(p.manager_root, "GSmsg manager pointer")
         if not manager:
             return None
@@ -510,6 +602,11 @@ class ProductionMenuReader:
                 task + p.task_id_offset, "title packed message ID"
             )
             message_id = packed & 0xFFFFFF
+            if (
+                title_status not in p.title_notification_statuses
+                and message_id not in p.global_save_notification_message_ids
+            ):
+                continue
             source = self.title_messages.get(message_id)
             if not source:
                 continue
@@ -725,11 +822,7 @@ class ProductionMenuReader:
             "live move name",
             alignment=1,
         )
-        local_name, _suffix = self.move_data.resolve(move_id)
-        if normalize(live_name) != normalize(local_name):
-            raise MenuReadError(
-                f"move-name disagreement live={live_name!r} local={local_name!r}"
-            )
+        move_id, local_name = self._displayed_move(move_id, live_name)
         menu_after = self.memory.u32(
             node.address + p.window_menu_id_offset, "menu ID after sample"
         )
@@ -852,12 +945,7 @@ class ProductionMenuReader:
                 "VS live move name",
                 1,
             )
-            local_name, _suffix = self.move_data.resolve(move_id)
-            if normalize(live_name) != normalize(local_name):
-                raise MenuReadError(
-                    f"VS move-name disagreement live={live_name!r} "
-                    f"local={local_name!r}"
-                )
+            move_id, local_name = self._displayed_move(move_id, live_name)
             moves.append((
                 button, local_name, current_pp, maximum_pp
             ))
@@ -867,6 +955,24 @@ class ProductionMenuReader:
             node.address, node.menu_id, allocation,
             actor, actor_name, tuple(moves)
         )
+
+    def _target_facts(self):
+        """Live level/status per nickname, or {} if the field cannot be
+        read. Never raises: this is enrichment, and losing it must not cost
+        the player the target name itself."""
+        try:
+            return self.target_facts.facts()
+        except MemoryError as exc:
+            self.logger.debug("TARGET FACTS unavailable: %s", exc)
+            return {}
+
+    def _target_detail(self, name, allocation, facts, label):
+        """The clause describing one target: HP straight off the panel it
+        is displayed in, level and status from the matching battler."""
+        current, maximum = status_panel_hp(
+            self.memory, self.profile, allocation, label)
+        return target_detail(
+            facts.get(normalize(name)), current, maximum)
 
     def story_target_focus(self, node, nodes):
         """Resolve menu 92 through its live selected target-item record."""
@@ -924,9 +1030,12 @@ class ProductionMenuReader:
             "Player"
             if status_id in p.vs_player_status_window_ids else "Opponent"
         )
+        detail = self._target_detail(
+            name, allocation, self._target_facts(),
+            "story selected target")
         return StoryTargetFocus(
             node.address, node.menu_id, allocation,
-            selected_ids[0], name, ownership,
+            selected_ids[0], name, ownership, detail,
         )
 
     def vs_target_panel(self, node, nodes):
@@ -934,6 +1043,7 @@ class ProductionMenuReader:
         if self.vs_actor is None:
             raise MenuReadError("VS target screen lacks acting battler")
         names = {}
+        allocations = {}
         for status_node in nodes:
             if status_node.menu_id not in (
                 *p.vs_player_status_window_ids,
@@ -958,6 +1068,7 @@ class ProductionMenuReader:
                     "VS status nickname is empty or ambiguous"
                 )
             names[status_node.menu_id] = name
+            allocations[status_node.menu_id] = allocation
         actor_name = next(
             (
                 name for menu_id, name in names.items()
@@ -983,8 +1094,14 @@ class ProductionMenuReader:
             ("D-pad down", teammate),
             ("D-pad right", names.get(p.vs_bottom_target_status_window_id)),
         ]
+        by_name = {name: allocation
+                   for menu_id, name in names.items()
+                   for allocation in (allocations[menu_id],)}
+        facts = self._target_facts()
         targets = tuple(
-            (button, name)
+            (button, name,
+             self._target_detail(
+                 name, by_name[name], facts, "VS target"))
             for button, name in target_items
             if name is not None
         )
@@ -1014,6 +1131,16 @@ class ProductionMenuReader:
                 self.profile.name_list_menu_id,
                 self.profile.name_keyboard_menu_id,
             ))
+            # Menu 53 is the game's reusable two-choice Yes/No widget.  Its
+            # parent identifies the caller, not the widget shape, and new
+            # callers must not need another hardcoded parent ID.  Treat each
+            # live immediate parent as structural support for this sample.
+            supported_ids.update(
+                nodes[index - 1].menu_id
+                for index, node in enumerate(nodes)
+                if index > 0
+                and node.menu_id == self.profile.new_game_confirmation_menu_id
+            )
             vs_node = None
             quick_battle_node = None
             challenge_node = None
@@ -1159,9 +1286,7 @@ class ProductionMenuReader:
                 (n for index, n in enumerate(nodes)
                  if n.menu_id
                  == self.profile.new_game_confirmation_menu_id
-                 and index > 0
-                 and nodes[index - 1].menu_id
-                 in self.profile.yes_no_confirmation_parent_ids),
+                 and index > 0),
                 None,
             )
             # A shop's greeting ("Welcome! ...") opens the SAME generic
@@ -1298,19 +1423,55 @@ class ProductionMenuReader:
                     active_prompt_id
                     in self.profile.daycare_choice_prompt_message_ids
                 )
+                global_save_prompt = (
+                    active_prompt_id
+                    in self.profile.global_save_prompt_message_ids
+                )
                 continue_prompt = (
-                    yes_no_index >= 2
-                    and nodes[yes_no_index - 1].menu_id == 52
-                    and nodes[yes_no_index - 2].menu_id
-                    == self.profile.continue_summary_menu_id
+                    active_prompt_id
+                    == self.profile.continue_confirmation_message_id
+                    or (
+                        self.yes_no_prompt_key is not None
+                        and self.yes_no_prompt_key[1]
+                        == self.profile.continue_confirmation_message_id
+                    )
+                    or (
+                        yes_no_index > 0
+                        and nodes[yes_no_index - 1].menu_id == 52
+                    )
+                    or (
+                        yes_no_index >= 2
+                        and nodes[yes_no_index - 1].menu_id == 52
+                        and nodes[yes_no_index - 2].menu_id
+                        == self.profile.continue_summary_menu_id
+                    )
                 )
                 focus = self.yes_no_focus(
                     yes_no_node,
-                    include_prompt=(not dialogue_prompt or daycare_prompt),
+                    include_prompt=(
+                        not dialogue_prompt
+                        or daycare_prompt
+                        or global_save_prompt
+                        or continue_prompt
+                    ),
                     initial_prefix=(
                         self.continue_summary() if continue_prompt else ""
                     ),
+                    repeat_prompt=continue_prompt,
+                    prompt_override=(
+                        _active_prompt_text if continue_prompt else None
+                    ),
                 )
+                if continue_prompt and focus.label in ("Yes", "No"):
+                    source = self.title_messages.get(
+                        self.profile.continue_confirmation_message_id, "")
+                    prompt_text = re.sub(r"\[[^]]+\]", " ", source)
+                    prompt_text = " ".join(prompt_text.split()).strip()
+                    if prompt_text:
+                        focus = CommandFocus(
+                            focus.work, focus.menu_id, focus.index,
+                            f"{prompt_text} {focus.label}",
+                        )
             elif (
                 title_status == self.profile.title_press_start_status
                 and self.memory.u32(
@@ -1456,7 +1617,27 @@ class ProductionMenuReader:
                 self.speech.emit(SpeechEventClass.MENU_FOCUS, text)
         except MemoryError as exc:
             self.logger.debug("MENU SAMPLE REJECTED: %s", exc)
+            if isinstance(exc, GameDataMismatch):
+                self._warn_game_data_mismatch(exc)
             self.identity = None
+
+    def _warn_game_data_mismatch(self, exc):
+        """Say once why the move menu has gone quiet.
+
+        Every other rejection is a transient worth waiting out, so the
+        reader stays silent about them. This one never resolves on its
+        own, and its symptom -- most moves silent, the occasional one
+        read normally -- gives the player nothing to act on. Spoken once
+        per session rather than per poll, because it repeats at the poll
+        rate for as long as the menu is open."""
+        if getattr(self, "_game_data_mismatch_warned", False):
+            return
+        self._game_data_mismatch_warned = True
+        self.logger.warning("GAME DATA MISMATCH: %s", exc)
+        self.speech.emit(
+            SpeechEventClass.WARNING, GAME_DATA_MISMATCH_ADVICE,
+            interrupt=False,
+        )
 
 
 

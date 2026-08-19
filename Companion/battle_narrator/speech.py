@@ -1,4 +1,5 @@
 from enum import Enum, auto
+import time
 
 
 class SpeechError(RuntimeError):
@@ -51,11 +52,48 @@ class SpeechCoordinator:
     Lifecycle/warning messages do not interrupt current player-facing speech.
     """
 
-    def __init__(self, speaker, logger):
+    CROSS_READER_DEDUP_CLASSES = frozenset({
+        SpeechEventClass.DIALOGUE, SpeechEventClass.MENU_FOCUS,
+    })
+    """Classes between which the SAME text means the same event twice.
+
+    Live 2026-08-18, one millisecond apart:
+
+        17:19:47.634 class=DIALOGUE   'LEON obtained the Cologne Case!'
+        17:19:47.635 MENU FOCUS NotificationFocus(message_id=54005, ...)
+        17:19:47.635 class=MENU_FOCUS 'LEON obtained the Cologne Case!'
+
+    The dialogue reader and the notification window reader both render the
+    same game message, and the player hears it twice. 76 occurrences across
+    the production logs -- item pickups and Purify Chamber notices, mostly
+    -- in BOTH orders, which is why neither reader can simply be muted:
+    each is sometimes the only one that fires, so silencing either would
+    lose the message outright.
+
+    Scoped to this pair rather than applied globally, deliberately. A
+    player genuinely re-reading a line produces the SAME class twice
+    (DIALOGUE then DIALOGUE, or the entity-nav repeat hotkey), and the
+    closest such legitimate repeat measured in the logs is 0.49s -- close
+    enough to the 0.38s worst observed duplicate that a global window would
+    be guessing. Across these two classes there is no legitimate case: one
+    reader speaking exactly what the other just said is the duplication
+    itself."""
+
+    CROSS_READER_DEDUP_SECONDS = 1.0
+    """How long an utterance suppresses its twin from the other reader.
+    Comfortably above the 0.38s worst observed gap, and safe to be generous
+    because the window only applies across the pair above."""
+
+    def __init__(self, speaker, logger, clock=time.monotonic):
         self.speaker = speaker
         self.logger = logger
+        self.clock = clock
         self.last_by_class = {}
         self.last_class = None
+        self._recent_cross = None
+        """(text, class, time) of the last utterance eligible for
+        cross-reader dedup. The class is carried so a repeat from the SAME
+        reader can be told from the two-reader race this suppresses."""
 
     def emit(self, event_class, text, deduplicate=False, interrupt=None):
         if deduplicate and self.last_by_class.get(event_class) == text:
@@ -63,6 +101,23 @@ class SpeechCoordinator:
                 "SPEECH DEDUP class=%s text=%r", event_class.name, text
             )
             return False
+        if event_class in self.CROSS_READER_DEDUP_CLASSES:
+            now = self.clock()
+            recent = self._recent_cross
+            if (recent is not None and recent[0] == text
+                    # CROSS-reader only. The same class saying the same
+                    # thing twice is a player re-reading a line, which is
+                    # legitimate and must survive -- it is a different
+                    # event from two readers racing over one message.
+                    and recent[1] is not event_class
+                    and now - recent[2] < self.CROSS_READER_DEDUP_SECONDS):
+                # Two readers, one message. See CROSS_READER_DEDUP_CLASSES.
+                self.logger.info(
+                    "SPEECH CROSS DEDUP class=%s text=%r", event_class.name,
+                    text)
+                self._recent_cross = (text, event_class, now)
+                return False
+            self._recent_cross = (text, event_class, now)
         if interrupt is None:
             interrupt = event_class in {
                 SpeechEventClass.MENU_FOCUS,
@@ -114,6 +169,7 @@ class SpeechCoordinator:
     def clear(self):
         self.last_by_class.clear()
         self.last_class = None
+        self._recent_cross = None
 
 
 

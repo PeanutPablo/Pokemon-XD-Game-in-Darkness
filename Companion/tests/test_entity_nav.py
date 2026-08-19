@@ -43,6 +43,9 @@ class MultiCategoryProfile:
     entity_nav_category_plural_labels: tuple = ("NPCs", "Doors", "Items")
     entity_nav_same_position_threshold: float = XD_US_REV0.entity_nav_same_position_threshold
     entity_nav_vertical_threshold: float = XD_US_REV0.entity_nav_vertical_threshold
+    entity_nav_auto_repeat_seconds: float = XD_US_REV0.entity_nav_auto_repeat_seconds
+    entity_nav_auto_repeat_movement_epsilon: float = (
+        XD_US_REV0.entity_nav_auto_repeat_movement_epsilon)
     interaction_collision_allowance: float = XD_US_REV0.interaction_collision_allowance
     current_floor_id: int = XD_US_REV0.current_floor_id
     window_manager: int = XD_US_REV0.window_manager
@@ -101,6 +104,11 @@ class FakeSource:
         return self.pose
 
 
+class BrokenSource(FakeSource):
+    def entities(self):
+        raise MemoryError("category runtime pointer is absent")
+
+
 class FakeNPCUnderlying:
     def __init__(self, npcs, pose):
         self._npcs = npcs
@@ -130,13 +138,43 @@ def hotkey_map():
         "next_category": Hotkey(),
         "prev_category": Hotkey(),
         "repeat": Hotkey(),
-        "refresh": Hotkey(),
     }
 
 
-def navigator(entities, pose=None, memory=None, hotkeys=None, profile=None):
+class MovableSource(FakeSource):
+    """A FakeSource whose player can be walked around, for the stand-still
+    auto-repeat. `player_pose` may also be made to fail, since a transient
+    bad read is a real case the auto-repeat has to stay quiet through."""
+
+    def __init__(self, entities, pose):
+        super().__init__(entities, pose)
+        self.fail = False
+
+    def walk_to(self, x, z):
+        self.pose = PlayerPose(Position(x, self.pose.position.y, z),
+                               self.pose.yaw)
+
+    def player_pose(self):
+        if self.fail:
+            raise MemoryError("player pose unreadable")
+        return self.pose
+
+
+class FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def advance(self, dt):
+        self.t += dt
+
+    def __call__(self):
+        return self.t
+
+
+def navigator(entities, pose=None, memory=None, hotkeys=None, profile=None,
+              clock=None, source=None):
     pose = pose or PlayerPose(Position(0, 0, 0), 0)
-    source = FakeSource(entities, pose)
+    source = source or FakeSource(entities, pose)
     nav = EntityNavigator(
         memory or FakeMemory(),
         profile or XD_US_REV0,
@@ -144,6 +182,7 @@ def navigator(entities, pose=None, memory=None, hotkeys=None, profile=None):
         hotkeys or hotkey_map(),
         Speech(),
         test_logger(),
+        clock=clock or FakeClock(),
     )
     return nav, source
 
@@ -258,11 +297,12 @@ class ActivationAndCyclingTests(unittest.TestCase):
         self.assertIn("Mid", self.last())
 
 
-class RefreshTests(unittest.TestCase):
-    """Refresh re-scans the current category (picking up entities that
-    appeared since activation, since next/prev only ever cycle the frozen
-    order captured then) while preserving the current selection when it's
-    still present."""
+class RefreshRemovalTests(unittest.TestCase):
+    """Refresh was removed on 2026-08-16 (see `EntityNavigator`'s
+    docstring). What replaces it is asserted here rather than assumed: a
+    category re-activation must pick up an entity that appeared after the
+    category was first activated, since that -- not the deleted action -- is
+    now the only way to reach one."""
 
     def setUp(self):
         self.entities = [
@@ -278,32 +318,19 @@ class RefreshTests(unittest.TestCase):
     def last(self):
         return self.nav.speech.calls[-1][1]
 
-    def test_refresh_picks_up_newly_appeared_entity_and_keeps_selection(self):
-        self.press("next")  # Near
-        self.press("next")  # Far
-        self.assertIn("Far", self.last())
+    def test_the_navigator_has_no_refresh_action_left(self):
+        self.assertFalse(hasattr(self.nav, "_refresh"))
+
+    def test_it_polls_only_the_five_remaining_hotkeys(self):
+        self.assertEqual(
+            set(self.nav.hotkeys),
+            {"next", "prev", "next_category", "prev_category", "repeat"})
+
+    def test_reactivating_the_category_picks_up_a_new_entity(self):
+        self.press("next")
         self.source._entities.append(entity(2, 0, -1, label="New"))
-        self.press("refresh")
+        self.press("next_category")
         self.assertIn("3 available.", self.last())
-        self.assertIn("Far", self.last())  # selection preserved, not reset to nearest
-
-    def test_refresh_falls_back_to_nearest_when_selection_disappears(self):
-        self.press("next")  # Near
-        self.press("next")  # Far
-        self.source._entities = [entity(0, 0, -5, label="Near")]
-        self.press("refresh")
-        self.assertIn("1 available.", self.last())
-        self.assertIn("Near", self.last())
-
-    def test_refresh_with_empty_category_announces_zero(self):
-        self.press("next")  # Near
-        self.source._entities = []
-        self.press("refresh")
-        self.assertIn("0 available.", self.last())
-
-    def test_refresh_with_no_active_category_activates_first_available(self):
-        self.press("refresh")
-        self.assertIn("2 available.", self.last())
 
 
 class CategoryTests(unittest.TestCase):
@@ -355,6 +382,26 @@ class CategoryTests(unittest.TestCase):
         nav.hotkeys["prev_category"].fire = True
         nav.poll_once()  # wraps backward: npc -> treasure
         self.assertIn("Items. 1 available.", nav.speech.calls[-1][1])
+
+    def test_broken_npc_source_does_not_hide_a_valid_item(self):
+        """Tower 3F has treasure records but no floor-character array."""
+        pose = PlayerPose(Position(0, 0, 0), 0)
+        nav = EntityNavigator(
+            FakeMemory(), MultiCategoryProfile(),
+            {
+                "npc": BrokenSource([], pose),
+                "door": FakeSource([], pose),
+                "treasure": FakeSource(
+                    [entity(0, 0, -3, label="Item box", category="treasure")],
+                    pose,
+                ),
+            },
+            hotkey_map(), Speech(), test_logger(),
+        )
+        nav.hotkeys["next_category"].fire = True
+        nav.poll_once()
+        self.assertIn("Items. 1 available.", nav.speech.calls[-1][1])
+        self.assertIn("Item box", nav.speech.calls[-1][1])
 
 
 class InvalidationTests(unittest.TestCase):
@@ -519,14 +566,6 @@ class CycleAnnouncementTests(unittest.TestCase):
         nav.poll_once()
         self.assertIn("NPCs", nav.speech.calls[-1][1])
 
-    def test_refresh_still_announces_the_category(self):
-        nav, _ = navigator([entity(0, 0, -5, label="Rui")])
-        nav.hotkeys["next"].fire = True
-        nav.poll_once()
-        nav.hotkeys["refresh"].fire = True
-        nav.poll_once()
-        self.assertIn("NPCs", nav.speech.calls[-1][1])
-
     def test_describe_entity_still_defaults_to_including_the_category(self):
         pose = PlayerPose(Position(0, 0, 0), 0)
         described = describe_entity(
@@ -666,6 +705,40 @@ class NPCEntitySourceTests(unittest.TestCase):
         self.assertEqual(entities[0].category, "npc")
 
 
+class GlobalCompanionEntitySourceTests(unittest.TestCase):
+    @dataclass
+    class Actor:
+        slot: int
+        group_id: int
+        res_id: int
+        displayed: bool
+        position: object
+
+    class Runtime:
+        def __init__(self, actors): self._actors = actors
+        def actors(self): return self._actors
+
+    def source(self, actors):
+        from battle_narrator.entity_sources import GlobalCompanionEntitySource
+        pose = FakeNPCUnderlying([], PlayerPose(Position(0, 0, 0), 0))
+        return GlobalCompanionEntitySource(pose, self.Runtime(actors))
+
+    def test_visible_jovi_is_published_from_global_slot(self):
+        jovi = self.Actor(1, 0, 101, True, Position(-78, 0, -110))
+        entities = self.source([jovi]).entities()
+        self.assertEqual([(e.label, e.position) for e in entities], [
+            ("Jovi", Position(-78, 0, -110)),
+        ])
+
+    def test_player_and_hidden_reserved_slots_are_not_published(self):
+        actors = [
+            self.Actor(0, 0, 100, True, Position(0, 0, 0)),
+            self.Actor(1, 0, 101, False, Position(-78, 0, -110)),
+            self.Actor(2, 0, 104, True, Position(5, 0, 5)),
+        ]
+        self.assertEqual(self.source(actors).entities(), [])
+
+
 class CategoryFilteredEntitySourceTests(unittest.TestCase):
     """Covers the reused per-floor elevator/item entries npc_beacons.py's
     NPCMemorySource.npcs() injects from its verified ELEVATORS/ITEMS
@@ -699,6 +772,39 @@ class CategoryFilteredEntitySourceTests(unittest.TestCase):
     def test_absent_category_on_current_floor_is_empty(self):
         npcs = [NPC(1, 0, True, 5, Position(0, 0, -5))]
         self.assertEqual(self.make(npcs, "item").entities(), [])
+
+
+class ScriptedPdaEntitySourceTests(unittest.TestCase):
+    class Memory:
+        def __init__(self, room): self.room = room
+        def u16(self, _address, _label): return self.room
+
+    class Flags:
+        def __init__(self, available=1, obtained=0):
+            self.values = {1849: available, 1660: obtained}
+        def value(self, flag_id): return self.values[flag_id]
+
+    def source(self, room=0x8A, available=1, obtained=0):
+        from battle_narrator.entity_sources import ScriptedPdaEntitySource
+        return ScriptedPdaEntitySource(
+            self.Memory(room), XD_US_REV0,
+            self.Flags(available, obtained))
+
+    def test_pda_uses_live_verified_xg_approach_point(self):
+        entities = self.source().entities()
+        self.assertEqual(len(entities), 1)
+        self.assertEqual(entities[0].label, "PDA")
+        self.assertEqual(entities[0].position, Position(-104.0, 0.5, -40.0))
+
+    def test_pda_is_absent_outside_its_room(self):
+        self.assertEqual(self.source(room=0x8B).entities(), [])
+
+    def test_pda_is_hidden_before_story_availability(self):
+        self.assertEqual(self.source(available=0).entities(), [])
+
+    def test_pda_is_hidden_after_pickup(self):
+        self.assertEqual(self.source(obtained=1).entities(), [])
+
 
 
 class WarpEntitySourceTests(unittest.TestCase):
@@ -917,6 +1023,147 @@ class FacingAwareInteractionTests(unittest.TestCase):
         self.assertAlmostEqual(facing_error(pose, npc_g.position), 149.6, delta=1.0)
         text = describe_entity(XD_US_REV0, "npc", npc_g, pose)
         self.assertIn("In range but facing away", text)
+
+
+class StandStillAutoRepeatTests(unittest.TestCase):
+    """Re-announce the current selection once the player has stood still for
+    `entity_nav_auto_repeat_seconds` (project owner's request, 2026-08-04).
+
+    Keyed to STOPPING, not to elapsed time: once per stop, re-armed only by
+    moving again."""
+
+    DELAY = XD_US_REV0.entity_nav_auto_repeat_seconds
+
+    def _setup(self, entities=None):
+        entities = entities or [entity(0, 0, 30, label="Jovi")]
+        pose = PlayerPose(Position(0, 0, 0), 0.0)
+        source = MovableSource(entities, pose)
+        clock = FakeClock()
+        hotkeys = hotkey_map()
+        nav, _ = navigator(entities, pose=pose, hotkeys=hotkeys, clock=clock,
+                           source=source)
+        return nav, source, clock, hotkeys
+
+    def _select(self, nav, hotkeys):
+        hotkeys["next"].fire = True
+        nav.poll_once()
+        nav.speech.calls.clear()
+
+    def _hold_still(self, nav, clock, seconds, step=0.25):
+        elapsed = 0.0
+        while elapsed < seconds:
+            clock.advance(step)
+            elapsed += step
+            nav.poll_once()
+
+    def test_standing_still_repeats_the_selection(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)          # move: re-arms the auto-repeat
+        nav.poll_once()
+        nav.speech.calls.clear()
+        self._hold_still(nav, clock, self.DELAY + 0.5)
+        self.assertEqual(
+            len(nav.speech.calls), 1,
+            f"expected exactly one automatic repeat, got "
+            f"{[c[1] for c in nav.speech.calls]}")
+        self.assertIn("o'clock", nav.speech.calls[0][1])
+        self.assertIn("distance", nav.speech.calls[0][1])
+        self.assertIn("Jovi", nav.speech.calls[0][1])
+
+    def test_it_does_not_fire_before_the_delay(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        self._hold_still(nav, clock, self.DELAY - 0.5)
+        self.assertEqual(nav.speech.calls, [])
+
+    def test_it_fires_once_per_stop_not_repeatedly(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        self._hold_still(nav, clock, self.DELAY * 5)
+        self.assertEqual(
+            len(nav.speech.calls), 1,
+            "standing still produced a repeating announcement")
+
+    def test_moving_again_re_arms_it(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        self._hold_still(nav, clock, self.DELAY + 0.5)
+        self.assertEqual(len(nav.speech.calls), 1)
+        source.walk_to(0.0, 20.0)
+        nav.poll_once()
+        self._hold_still(nav, clock, self.DELAY + 0.5)
+        self.assertEqual(
+            len(nav.speech.calls), 2,
+            "walking on and stopping again did not produce a second repeat")
+
+    def test_a_deliberate_press_is_not_echoed_a_moment_later(self):
+        """Pressing next/repeat while already standing still must satisfy
+        the stop -- otherwise every press is followed by the same sentence
+        again 1.5 seconds later."""
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        self._hold_still(nav, clock, 0.5)
+        hotkeys["repeat"].fire = True
+        nav.poll_once()
+        self.assertEqual(len(nav.speech.calls), 1, "the press itself spoke")
+        self._hold_still(nav, clock, self.DELAY + 0.5)
+        self.assertEqual(
+            len(nav.speech.calls), 1,
+            "the deliberate press was echoed by the auto-repeat")
+
+    def test_nothing_is_said_with_no_selection(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._hold_still(nav, clock, self.DELAY * 3)
+        self.assertEqual(nav.speech.calls, [])
+
+    def test_a_vanished_entity_is_silent_and_keeps_the_selection(self):
+        """Unlike the manual repeat, which says so and clears. An unprompted
+        announcement must not act on what could be a transient bad read."""
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        selected = nav.state.selected_identity
+        source._entities = []
+        self._hold_still(nav, clock, self.DELAY + 0.5)
+        self.assertEqual(nav.speech.calls, [])
+        self.assertEqual(nav.state.selected_identity, selected)
+
+    def test_an_unreadable_pose_stays_quiet(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        source.fail = True
+        self._hold_still(nav, clock, self.DELAY * 3)
+        self.assertEqual(nav.speech.calls, [])
+
+    def test_a_menu_suppresses_it_and_closing_does_not_trigger_it(self):
+        nav, source, clock, hotkeys = self._setup()
+        self._select(nav, hotkeys)
+        source.walk_to(0.0, 10.0)
+        nav.poll_once()
+        nav.speech.calls.clear()
+        nav.memory.window_head = 0x80000000      # a menu opens
+        self._hold_still(nav, clock, self.DELAY * 2)
+        self.assertEqual(nav.speech.calls, [], "spoke while a menu was open")
+        nav.memory.window_head = 0               # and closes
+        nav.poll_once()
+        self.assertEqual(
+            nav.speech.calls, [],
+            "closing the menu immediately triggered a repeat")
 
 
 if __name__ == "__main__":

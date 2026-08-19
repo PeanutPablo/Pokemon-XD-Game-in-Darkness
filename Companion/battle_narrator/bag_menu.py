@@ -24,7 +24,8 @@ separate so nothing bag-specific leaks into the reusable pieces:
   category-change-only alternative; picked the most verbose of the
   three), `item_database.ItemDescriptionResolver` for a spoken
   description appended to *every* announcement, not just on open/
-  category-change.
+  category-change. Real item identity is always spoken first so rapid
+  tab navigation cannot repeatedly cut speech off at the category name.
 
 Row-selection mechanism: `menuPocket2Cursor` does NOT read the window
 struct's own `+0x9F` byte for the item row (that byte is the category
@@ -272,8 +273,8 @@ class BagMenuReader:
         if category_changed:
             label = self._item_label(selection.item_id)
             text = (
-                f"{selection.category_label}. {label}. "
-                f"Quantity {selection.quantity}."
+                f"{label}. Quantity {selection.quantity}. "
+                f"{selection.category_label}."
                 f"{self._description_suffix(selection.item_id)}"
             )
         else:

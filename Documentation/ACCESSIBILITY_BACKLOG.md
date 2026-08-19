@@ -643,7 +643,7 @@ This list should grow whenever a new feature graduates from "Implemented" to "Re
 ## Deferred ideas
 
 - **Automatic multi-room route guidance** (a room-connectivity graph walking through doors automatically). Reasoned through and deliberately not built — doors/warps are already selectable entity-nav categories, so guiding to a door, walking through it, and reselecting in the new room already composes without new code. Revisit only if this composition proves too effortful in practice.
-- **General autowalk.** Explicitly rejected as a direction distinct from the read-only audio-guide approach the project owner chose instead, per the tension flagged and resolved earlier this session (autowalk means sending input, which the audio guide deliberately avoids).
+- ~~**General autowalk.** Explicitly rejected as a direction distinct from the read-only audio-guide approach the project owner chose instead, per the tension flagged and resolved earlier this session (autowalk means sending input, which the audio guide deliberately avoids).~~ **Reversed and implemented 2026-08-16** at the project owner's explicit direction. The rejection rested on a premise that turned out to be false: autowalk does *not* have to send input. `heroMove.s` carries the engine's own scripted-stick override (`HeroMove+0x3AE`, read by `_getStickData` before the controller is ever consulted, and used by the game itself in `_heroMoveSlowStopFactor`), so the companion writes five bytes and the engine walks the character through ordinary locomotion — no synthetic keyboard, no virtual gamepad, no Dolphin focus requirement, and no position write. See `autowalk.py`, `hero_stick.py`, and the coverage matrix's Autowalk entry. Implemented but **not yet live-tested**.
 - ~~Text (0xC) and PC (0xE) entity-nav interaction-table types.~~ **Resolved 2026-07-29** — both implemented as `sign`/`pc` categories; PC live-confirmed, sign not yet live-tested. See the active-foundational-feature section above.
 
 ---
@@ -703,15 +703,36 @@ undone rather than forgotten:
    the moment it happens to confirm — adding position logging to the guide is
    the cheap next step.
 
-3. **Dynamic object-enable state — not live-validated.** `GScolsys2SetObjEnable`
-   is called from `script.s` and `WalkGetHeight` skips disabled objects, so
-   scripted geometry changes are real. A narrow read-only probe at the
-   disassembly-traced `≈0x80445C20` returned mapped memory but a byte pattern
-   that did not clearly match the traced bit-flag layout — **inconclusive**.
-   Handling is isolated behind `collision_object_enable.ObjectEnableState`
-   (shipping as `StaticObjectEnableState`), so a verified implementation is a
-   one-class swap. Needs a room with a *known* scripted geometry change to test
-   behaviourally. **Do not guess the runtime mapping.**
+3. **Dynamic object-enable state — IMPLEMENTED 2026-08-13, live validation
+   still owed.** `GScolsys2SetObjEnable` is called from `script.s` and
+   `WalkGetHeight` skips disabled objects, so scripted geometry changes are
+   real — and treating every object as enabled was actively inventing walls,
+   not merely missing a feature. It sealed Agate's Relic Stone cave mouth into
+   a 26-tile pocket (`M3_out` object 33) and split the cave interior
+   (`M3_cave_1F_1` objects 4, 5), the latter producing a confident route
+   ending 180.4 units from the exit.
+
+   The earlier probe at `≈0x80445C20` "returned mapped memory but a byte
+   pattern that did not clearly match" — **that is explained**. The record
+   base is `GScolsys2 + 0x04`, not `+0x00`; probing at `+0x00` with stride
+   `0x28` reads each record's transform floats shifted by four bytes, which
+   is exactly a plausible-but-wrong pattern. The full structure, its
+   derivation from `GScolsys2.s`, and a binary-image byte match verifying the
+   address are in COLLISION_DETECTION_INVESTIGATION.md §"Runtime
+   object-enable state".
+
+   `LiveObjectEnableState` now reads it; `NavigationService` invalidates
+   geometry and discards stale routes on change. **LIVE-VALIDATED 2026-08-13
+   in `M3_out`**: the engine reported object 33 disabled, wall triangles fell
+   1097 → 1095, the cave pocket became the 1861-node component predicted
+   statically before the game was run, and the `cause=disconnected` /
+   partial-route failures stopped. See COLLISION_DETECTION_INVESTIGATION.md
+   §"Live confirmation".
+
+   **Remaining:** the Gateon oracle (entries 23–31 against `pier_def`/flag
+   968) — a second, independent confirmation on a room that toggles objects
+   *mid-session*, which Agate does not exercise. 27 of 212 room scripts use
+   the mechanism.
 
 4. **Rooms whose walk model is absent or unparseable.** 10 of 177 `.ccd` files
    have no +0x24 model at all; a further 3 (`M6_pc_1F`, `M6_tower_3F`,
@@ -800,3 +821,27 @@ Reverse Mode, money reward, wild appeared, capture, nickname prompt, all four
 send-outs plus the two-trainer 20309 form, trainer class+name, speaker opcode
 0x59, side-name qualifiers, Baton Pass identity, doubles level-up recipient,
 and the no-self-interrupt speech change.
+
+## Navigation: region-aware routing (2026-08-12)
+
+Routed guidance now accepts a route only when an ordinary walkable path
+reaches the destination's interaction region. Distance-based acceptance is
+retired. See `NAVIGATION_AUDIT_2026-08-04.md` 6h and
+`WORLD_NAVIGATION_ARCHITECTURE.md` 6k.
+
+**Routed coverage is intentionally lower** -- roughly 43% of interaction
+pairs, down from 69.3% -- because the removed 26 points were false routes:
+measured, 1759 of 2024 previously-accepted reseeds put the player on the far
+side of a wall from the destination. The invariant is zero known false
+`VERIFIED` routes, not maximum coverage.
+
+Remaining limitations, all measured and none fixed here:
+
+- Cross-level destinations within one room are diagnosed (`height_layer` /
+  `disconnected`), never routed.
+- `M3_cave_1F_1`'s passage reads as disconnected pockets in the collision
+  data even though the player can walk it; wall semantics are not yet
+  investigated.
+- Region target hysteresis and reachable-component selection are specified
+  but not implemented.
+- Worst-case route build in `M6_out` remains multi-second.

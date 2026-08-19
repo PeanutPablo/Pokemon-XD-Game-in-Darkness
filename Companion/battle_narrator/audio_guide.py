@@ -29,7 +29,7 @@ see the two separate distance computations in `poll_once` below.
 selected entity itself, with pan/pitch/gain describing the straight line to
 it and no routing, waypoints, or route announcements of any kind. Passing a
 real `NavigationService` gives the ROUTED mode described above. Production
-runs one of each -- ctrl+shift+g for the direct beacon, ctrl+shift+n for
+runs one of each -- ctrl+g for the direct beacon, ctrl+n for
 routed navigation -- and turning either on turns the other off (see
 `peer`), because two spatial cues describing different aim points at once
 is exactly the ambiguity this interface exists to avoid. They are one class
@@ -168,6 +168,11 @@ class AudioGuideReader:
         self.category_key = None
         self.identity = None
         self.next_due = 0.0
+        self.suppressed = False
+        """True while something is holding this guide silent -- a
+        conversation, or the settings menu being open. Not the same as
+        being off: `active` is untouched, so the guide resumes on its own
+        once the interruption ends. See `poll_once`."""
 
     def clear(self, reason):
         if self.active:
@@ -178,6 +183,7 @@ class AudioGuideReader:
         self.active = False
         self.category_key = None
         self.identity = None
+        self.suppressed = False
 
     def _say(self, text):
         self.speech.emit(SpeechEventClass.ENTITY_NAV, text, deduplicate=False, interrupt=True)
@@ -193,8 +199,48 @@ class AudioGuideReader:
         entities = {entity.identity: entity for entity in source.entities()}
         return source, entities.get(state.selected_identity)
 
-    def poll_once(self):
+    def poll_once(self, silenced=False):
+        """`silenced` holds the guide quiet without switching it off.
+
+        Two callers set it, for the same reason: a conversation is open, or
+        the settings menu is. In both the player is listening to speech
+        that a repeating tone would sit on top of."""
+        # The chord is polled even while silenced, and its result discarded
+        # below. `WindowsForegroundHotkey` is edge-triggered on state it
+        # keeps between calls, so skipping the call entirely would leave
+        # `held` stale: a chord released while silenced would still read as
+        # held afterwards, and the next real press would be swallowed.
         triggered = self.hotkey.poll()
+        if silenced:
+            # Silence, not shutdown. Everything below this line either
+            # makes a sound or speaks -- the tone itself, "Arrived.", the
+            # route-fallback announcements -- and all of it would land on
+            # top of what the player is trying to listen to.
+            #
+            # `active`, the selection and the built route are all left
+            # exactly as they are, so the guide picks up by itself
+            # afterwards. That matches what entity-nav already does: it
+            # gates its ACTIONS on dialogue but deliberately keeps the
+            # selection, because "find someone, talk to them, carry on down
+            # the list" is the common loop and throwing the route away
+            # would make every conversation cost a re-press and a rebuild.
+            #
+            # A press made while silenced is dropped rather than queued.
+            # Acting on it would have to speak ("Navigation on.") to be
+            # usable at all, which is the thing being avoided.
+            if self.active and not self.suppressed:
+                self.player.stop()
+                self.suppressed = True
+                self.logger.debug(
+                    "AUDIO GUIDE %s suppressed", self.name)
+            return
+        if self.suppressed:
+            self.suppressed = False
+            # `next_due` was left in the past while suppressed, so the
+            # first pulse afterwards lands immediately rather than after
+            # another cadence gap -- the player has just been cut loose and
+            # wants their bearings back now.
+            self.logger.debug("AUDIO GUIDE %s resumed", self.name)
         if triggered:
             if self.active:
                 self.clear("toggled off")
@@ -223,7 +269,8 @@ class AudioGuideReader:
                 # by the stairwell and reported the player unlinked forever.
                 self.navigation.begin(
                     self.pose_source.current_floor_id(), entity.position,
-                    source.player_pose().position)
+                    source.player_pose().position,
+                    destination_region=(entity.metadata or {}).get("region"))
             self._say(f"{self.name} on.")
             return
         if not self.active:
@@ -260,13 +307,33 @@ class AudioGuideReader:
             self._emit_tone(pose, entity.position, real_distance,
                             self.max_distance)
             return
+        # The region, when the entity has one, is what makes a route
+        # VERIFIED: guidance is accepted only when an ordinary walkable
+        # path reaches the trigger volume itself, never merely somewhere
+        # near it. See `pathfinding.destination_target_tiles`.
         self.navigation.update(
-            self.pose_source.current_floor_id(), entity.position, pose.position)
+            self.pose_source.current_floor_id(), entity.position, pose.position,
+            destination_region=(entity.metadata or {}).get("region"))
         result = self.navigation.next_waypoint(pose.position)
         if result.fallback_started:
             self._say("No walkable path found; guiding directly.")
         if result.progress_invalidated:
             self._say("Walkable route could not be verified; guiding directly.")
+        if result.partial_started:
+            # The route is real and walkable, it just does not reach the
+            # target -- Agate's Relic Stone cave sits in a pocket the graph
+            # never joins, and the closest walkable ground is 7 units from
+            # its mouth. Guiding there is genuinely useful (the player was
+            # relying on it), but it must never be delivered as if it
+            # arrived. So it is offered WITH its shortfall spoken, once.
+            pieces = ["Cannot reach it; guiding to the closest point I can "
+                      "reach"]
+            if result.partial_shortfall is not None:
+                pieces.append(f"{round(result.partial_shortfall)} short")
+            vertical = result.partial_vertical
+            if vertical is not None and abs(vertical) > ARRIVAL_HEIGHT_TOLERANCE:
+                pieces.append("above it" if vertical > 0 else "below it")
+            self._say(", ".join(pieces) + ".")
         if result.waypoint_advanced and self.waypoint_sound_path is not None:
             self.player.play(self.waypoint_sound_path, 0.0, 1.0, WAYPOINT_REACHED_GAIN)
         # The "hot/cold" gain/pitch/repeat-cadence gradient is normalized
@@ -329,9 +396,9 @@ class GuideModes:
         beacon.peer = navigation
         navigation.peer = beacon
 
-    def poll_once(self):
-        self.beacon.poll_once()
-        self.navigation.poll_once()
+    def poll_once(self, silenced=False):
+        self.beacon.poll_once(silenced)
+        self.navigation.poll_once(silenced)
 
     def clear(self, reason):
         self.beacon.clear(reason)

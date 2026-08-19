@@ -345,7 +345,7 @@ implemented here, per scope.
 | Experience (20003) | `_EV_STR_BUF0` (correct opcode) | unchanged | no |
 | Shadow messages | fixed sentences | unchanged | Phase 3 |
 | Capture flow | `_TSUIKA_MONS` | unchanged | Phase 3 (needs 0x16) |
-| Ctrl+Shift+H summary | `summary_slot_order` speaking order | unchanged | no — ordering only, not side attribution |
+| Ctrl+H summary | `summary_slot_order` speaking order | unchanged | no — ordering only, not side attribution |
 
 Deliberately not rewritten: anything already resolving its subject from the
 correct authoritative source. Phase 2's rule was to fix the identity model

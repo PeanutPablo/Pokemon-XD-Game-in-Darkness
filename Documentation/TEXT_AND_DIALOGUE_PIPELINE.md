@@ -187,7 +187,41 @@ Per the project's existing `.gitignore` (root of the repo), the established conv
 
 ---
 
-## 12. Summary of what remains genuinely unresolved
+## 12. Special field-dialogue substitution recovery (2026-08-11)
+
+The live narrator log showed the Name Rater's ordinary surrounding pages but
+missed message 50803. Static script evidence identifies both storage layers:
+
+- `M3_houseD_1F` stores the dialogue template in that room's map-specific
+  message table.
+- Immediately before `Character::talk(type=8, message=50803)`, the script
+  calls `Pokemon::getNickname` and passes the result to
+  `Dialogs::setMsgVar(50, value)`.
+- Decimal 50 is message opcode `0x32`, whose native handler reads `_Pokemon`
+  at `0x804EB288` as a GSchar text pointer.
+
+These pages are map-owned templates completed from live msgvars. When the
+narrow dialogue decoder encounters a meaning-changing opcode it does not
+understand, production now falls back to the verified `MessageRenderer`,
+which reproduces `GSmsgMakeGScharStr` from the native dispatch table and live
+msgvar block. It still suppresses the entire page if any substitution is
+unresolved. Focused dialogue/PDA/keyboard regressions: 64 passing. Full
+suite: 1,356.
+
+## 13. Pocket-menu task dialogue correction (2026-08-11)
+
+Item-use results are a third runtime presentation path. Miror Radar produced
+GSmsg task message 15391 while the Bag remained in the window stack, but did
+not create the menu-82/controller-type-3 structure required by
+`DialogueMemorySource`. Its template is owned by `pocket_menu.fsys`, not
+`fight_common` or a map table, and contains mode-2 nested-message opcode 0x4D
+for the location name. Production now identifies this family from the
+presence of the real Bag window plus membership in the extracted pocket-menu
+table, then uses `MessageRenderer` and the live msgvars. This covers the same
+source family's TM prompts and item-result pages without message-ID or item-ID
+allowlists.
+
+## 14. Summary of what remains genuinely unresolved
 
 - **Unknown:** which `OSSetFontEncode` mode (section 1a) the shipped game actually selects at runtime — no game-logic call site is decompiled.
 - **Unknown:** the exact function body of `SJIStoGSchar`/`GSmsgMakeGScharStr` — the SJIS→GSchar conversion is signature-proven (section 1b) but not body-proven.

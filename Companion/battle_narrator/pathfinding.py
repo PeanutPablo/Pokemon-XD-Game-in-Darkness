@@ -74,6 +74,7 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
+from . import region_geometry
 from .collision_object_enable import StaticObjectEnableState
 from .npc_beacons import Position
 
@@ -244,6 +245,38 @@ genuinely unrelated surfaces, not real terrain. 10.0 sits with margin above
 every real measured slope step and with a much larger margin below that
 jump, so it still does real defensive work rather than passing everything
 through."""
+MAX_DROP_HEIGHT = None
+"""**Do not add falling to the graph. The premise was wrong.**
+
+Agate's Relic Stone cave sits in a hollow whose nearest same-level reachable
+ground is 141 units away, while the tile above it carries walkable ground
+125 units up. That looked like "you get in by walking off the ledge", and
+one-way downward edges were implemented on that basis. They connected the
+cave -- and also made falling beat walking on already-proven routes
+(`M3_out`'s live-validated terrace route shortened from 11 hops to 10 by
+leaping off the terrace instead of taking the ramp).
+
+**Then the project owner corrected the premise (2026-08-13): this game has
+no drops at all.** The character is glued to the ground while walking, with
+one specific exception somewhere in the S.S. Libra. So falling is not how
+that hollow is entered, and modelling it would be inventing a movement the
+engine does not have -- the exact class of mistake the no-hardcoding rule
+exists to prevent.
+
+What the measurement therefore means instead: **the hollow must have a
+walkable connection our model is refusing.** Classifying every one of the 60
+boundary edges out of that 26-tile pocket, with the same predicate routing
+uses:
+
+    layer mismatch          28   neighbour's only surface is the clifftop
+                                 (y=120, layer 3) -- correctly refused
+    edge blocked by wall    22   <- the real suspects
+    no walk surface at all  10   correctly refused
+
+So the investigation has a target of 22 edges, not a room. That is the
+deferred wall-semantics work, and it is now sharply scoped."""
+
+
 MAX_TILES = 32000
 """Hard bound on search size, matching this project's standing convention of
 bounding every unbounded-looking loop (floor_data_max_records,
@@ -389,6 +422,16 @@ class RoomWalkableGeometry:
     mutable dict on a frozen dataclass: geometry is cached per room for the
     app's lifetime and the sub-tile scan is pure, so this is computed once
     per tile per room and reused by every later route build in that room."""
+    component_cache: dict = None
+    """Memo for `connected_components` -- node -> component id over the
+    ordinary edge predicate, computed once per room. A route request can
+    then answer "can the player's component reach this destination at all"
+    with two dictionary lookups instead of a full flood.
+
+    Computed without the player-specific `exempt_tiles`/`node_points`
+    relaxations, which is the only way it can differ from the real search.
+    `flow_field_toward` closes that gap exactly rather than approximately --
+    see the proof in its own comment."""
     ring_cache: dict = None
     """Memo for `wall_candidates_around`, keyed by `(tiles, ring)`. Same
     rationale as `relocation_cache` -- the wall buckets never change after
@@ -452,9 +495,27 @@ class RoomWalkableGeometry:
         return min_x <= x <= max_x and min_z <= z <= max_z
 
 
+def _is_interaction_volume(triangle, interaction_volumes):
+    """Whether this hit-model triangle IS an interaction region's own volume.
+
+    A CCD object may carry geometry in both the hit-model slot (+0x28) and
+    the interactable slots (+0x2C/+0x30), and when it does the triangles are
+    frequently identical. Such a volume is something the player walks INTO to
+    trigger, so it cannot also be something they are blocked by -- see
+    `region_geometry.interaction_volume_keys` for the live case (`M3_out`
+    entry 33, the Relic Stone cave doorway) and the game-wide measurement.
+
+    `None` disables the test entirely, which is what every synthetic fixture
+    and offline tool wants: they supply triangles with no CCD behind them."""
+    if not interaction_volumes:
+        return False
+    return region_geometry.triangle_key(triangle.vertices) in interaction_volumes
+
+
 def build_room_geometry(walk_triangles, wall_triangles, tile_size=TILE_SIZE,
                          floor_id=None, enable_state=None,
-                         collision_radius=DEFAULT_COLLISION_RADIUS):
+                         collision_radius=DEFAULT_COLLISION_RADIUS,
+                         interaction_volumes=None):
     """Builds the per-room walkable/obstacle index from the engine's own
     two distinct CCD models: `walk_triangles` (CCD +0x24, `WalkTriangle` --
     real walkable ground, with layer identity) and `wall_triangles` (CCD
@@ -477,10 +538,52 @@ def build_room_geometry(walk_triangles, wall_triangles, tile_size=TILE_SIZE,
         enable_state = StaticObjectEnableState()
     walk_triangles = tuple(
         t for t in walk_triangles if enable_state.is_enabled(floor_id, t.entry_index))
+    # !! THE COMMENT BELOW DESCRIBES A FIX THAT WAS NEVER APPLIED. !!
+    #
+    # It says wall triangles are deliberately NOT gated by `enable_state`.
+    # They are: the filter immediately below still calls `is_enabled`, and
+    # so does the shipped 0.1.0 release. So the live failure it describes
+    # is, as far as anything here shows, still reproducible. Left in place
+    # rather than "fixed" in passing on 2026-08-18, because the change is a
+    # routing change to a painfully live-tuned system and was not what was
+    # being worked on; flagged instead. Whoever picks this up owns
+    # re-measuring it live in `M6_out`.
+    #
+    # Its intent, unchanged: `enable_state` gates WALK triangles (a disabled
+    # object withdraws its floor, which CLOSES routes) but should NOT gate
+    # wall triangles (which would OPEN them).
+    #
+    # The engine itself skips a disabled object for both models, so that is
+    # knowingly less faithful in one direction -- and it is the direction
+    # that matters. Opening a route on an inference walks a blind player into
+    # a gap; refusing one merely declines to help.
+    #
+    # **Live 2026-08-14, `M6_out` (Gateon Port).** Bridge segments 23-31 carry
+    # ZERO walk triangles -- only hit geometry; the walk decks are entries
+    # 44-62 and are never toggled. So gating walls by enable state did
+    # nothing there but delete barriers from the segments the game had
+    # switched OFF. It opened 216 nodes across open water and routed the
+    # project owner over spans that do not exist; they had to ignore the
+    # guide to get back.
+    #
+    # POLARITY CORRECTED 2026-08-18: this comment used to conclude
+    # "`enable == 1` means that direction is CONNECTED". It means BLOCKED --
+    # see GATEON_BRIDGE_ACCESSIBILITY.md §2.4, and note that the very first
+    # sentence of this paragraph ("segments 23-31 carry ZERO walk
+    # triangles") is one of the facts that settles it. The observation
+    # itself is unaffected: removing a switched-OFF segment's barrier opens
+    # water either way, because the ground mesh (entry 45) extends across
+    # it and the hit geometry is what confines the player.
+    #
+    # Measured: with walls left alone, `M6_out` reachability returns to
+    # exactly its all-enabled value (23488, from 23704), and the Relic cave
+    # is unaffected because its false wall is an interaction volume, removed
+    # by the rule below rather than by enable state.
     wall_triangles = tuple(
         t for t in wall_triangles
         if abs(t.normal[1]) <= WALL_NORMAL_THRESHOLD
         and enable_state.is_enabled(floor_id, t.entry_index)
+        and not _is_interaction_volume(t, interaction_volumes)
     )
     walk_buckets = {}
     for triangle in walk_triangles:
@@ -501,7 +604,7 @@ def build_room_geometry(walk_triangles, wall_triangles, tile_size=TILE_SIZE,
         )
     return RoomWalkableGeometry(
         walk_triangles, wall_triangles, walk_buckets, wall_buckets,
-        tile_size, bounds, collision_radius, floor_id, {}, {})
+        tile_size, bounds, collision_radius, floor_id, {}, {}, {})
 
 
 @dataclass(frozen=True)
@@ -619,6 +722,126 @@ is a genuinely different question from `resolve_node`'s ring search, which
 exists to rescue a player standing on a seam between triangles -- hence a
 separate, larger, separately-named limit rather than widening that one."""
 
+ARRIVAL_RADIUS = 4.0
+"""The real arrival radius, matching `audio_guide.AudioGuideReader`'s own
+`arrival_distance`. Used to build the acceptance neighbourhood for a POINT
+destination, the way a region's own triangles do for a region-backed one --
+see `destination_target_tiles`. It is deliberately the distance the guide
+already uses to say "Arrived", not a routing-specific ceiling."""
+
+
+def destination_height_band(destination_position, region=None,
+                             tolerance=HEIGHT_CONTINUITY_TOLERANCE):
+    """The Y range a node must be in to count as ARRIVING at a destination.
+
+    **Live-caught 2026-08-13, `M3_out`.** Arrival was matched on tile alone,
+    which discards Y -- so a node on the clifftop counted as arriving at a
+    trigger volume at the bottom of the cliff. Selecting the Relic Stone
+    cave exit built a confident route, walked the player 341 units across
+    Agate Village, reported `route_success` at a residual of 3.68 units, and
+    left them standing 83 units ABOVE the entrance with no way down from
+    there. The region spans y -10.00..36.67; the player finished at y=120.
+
+    That is the same false-`VERIFIED` failure the whole region-acceptance
+    change exists to remove, reintroduced through the one axis the tile
+    lattice does not model. A route may only be accepted into a node whose
+    height actually lies within the trigger volume, give or take the usual
+    one-surface tolerance.
+
+    Returns `(low, high)`, or `None` when the destination is a bare point --
+    those already carry their own arrival radius in XZ and have no volume to
+    test against."""
+    if region is None or not getattr(region, "triangles", None):
+        return None
+    ys = [vertex[1] for triangle in region.triangles for vertex in triangle]
+    return (min(ys) - tolerance, max(ys) + tolerance)
+
+
+def destination_target_tiles(geometry, destination_position, region=None):
+    """Which tiles count as ARRIVING at this destination.
+
+    Region-backed destinations (warps, doors, elevators, PCs, signs -- see
+    `region_geometry.Region`) are trigger VOLUMES the player walks into, so
+    every tile the region's triangles touch counts. Point destinations get
+    the tiles within the real arrival radius of the point.
+
+    Tile intersection, not a distance test, and that distinction is
+    load-bearing: the lattice is 8 units and a node sits up to ~5.7 units
+    from any given point in its tile, so a 4-unit proximity test can miss
+    the tile the player is literally standing in. Measured in
+    `M3_cave_1F_1`: a 4-unit test reported zero reachable nodes touching the
+    region the player was standing in, while tile intersection correctly
+    reported the two regions that genuinely route."""
+    tiles = set()
+    if region is not None and getattr(region, "triangles", None):
+        for triangle in region.triangles:
+            xs = [vertex[0] for vertex in triangle]
+            zs = [vertex[2] for vertex in triangle]
+            tiles.update(_cells_for_bounds(
+                (min(xs), max(xs), min(zs), max(zs)), geometry.tile_size))
+        return frozenset(tiles)
+    # (height filtering for region destinations lives in
+    # `destination_height_band`, applied by the caller alongside these
+    # tiles -- see that function for the live failure that required it.)
+    centre = _tile_key(
+        destination_position.x, destination_position.z, geometry.tile_size)
+    tiles.add(centre)
+    reach = int(math.ceil(ARRIVAL_RADIUS / geometry.tile_size))
+    for dx in range(-reach, reach + 1):
+        for dz in range(-reach, reach + 1):
+            key = (centre[0] + dx, centre[1] + dz)
+            cx, cz = _tile_center(key, geometry.tile_size)
+            if math.dist((cx, cz), (destination_position.x,
+                                    destination_position.z)) <= ARRIVAL_RADIUS + geometry.tile_size / 2.0:
+                tiles.add(key)
+    return frozenset(tiles)
+
+
+_REMOVED_REACHABILITY_FALLBACK_MAX_OFFSET = """
+**Removed 2026-08-12.** A reseed used to be accepted when its offset from
+the destination's projected floor position was within 64 units. Measured
+across every interaction-point pair in the game, that rule accepted 2024
+routes of which only 265 were locally useful -- it misled the player 86.9%
+of the time it fired.
+
+Distance turned out to have essentially no predictive power. Measuring local
+walkable connectivity from each accepted reseed to the destination's own
+interaction region:
+
+    distance to region   useful / total
+    <= 4 units            103 / 103   100.0%
+    4 - 8                  46 / 480     9.6%
+    8 - 16                 54 / 478    11.3%
+    16 - 32                22 / 440     5.0%
+    > 32                   40 / 523     7.6%
+
+Above the real 4-unit arrival radius the hit rate is 5-11% in EVERY band,
+including the nearest -- and the >32 band scores better than 16-32. There is
+no threshold to find because the signal is not there. 74.4% of reseeds
+landing within 8 units of their destination were still on the far side of a
+wall from it. Every candidate distance ceiling (16, 32, 64 units, measured
+to the anchor or to the region) accepted a route that misled the player
+79-87% of the time.
+
+What DOES predict usefulness is whether an ordinary walkable path exists
+from the reseed into the destination's interaction region -- the same walk
+layers, wall tests, collision radius, corner rules and floor support the
+flood fill itself uses, with no second projection or fallback underneath.
+`flow_field_toward` now requires exactly that, so a reseed is accepted only
+when the resulting field is a continuous ordinary route into the region.
+
+Consequences, measured and accepted:
+
+- `M3_cave_1F_1`: the shrine exit refuses (its region shares no reachable
+  tile with the player), while regions 1 and 2 -- the pair that genuinely
+  connects -- still route.
+- `D1_garage_1F`: region 1 routes. Both basement warps refuse, because they
+  are 48-60 units below a floor that does not extend under them: there is no
+  walk surface beneath either region anywhere in this room. They only ever
+  "worked" by guiding 70 units to a spot by the south wall. That is the
+  cross-level case, and refusing it is the honest answer rather than a
+  regression to be exempted.
+"""
 DESTINATION_PROJECTION_MAX_VERTICAL_GAP = HEIGHT_CONTINUITY_TOLERANCE
 """How far VERTICALLY a destination may be projected onto floor.
 
@@ -639,8 +862,47 @@ surface", so projection and connectivity now agree about what one level is
 rather than each having its own idea."""
 
 
+def _resolve_at_own_column(geometry, position, own_tile, height_band=None):
+    """The walk surface a destination sits on, at its OWN XZ only.
+
+    Deliberately never ring-searches -- that is the caller's job, under the
+    caller's vertical guard. `resolve_node` does have its own 2-ring
+    fallback, and letting it fire here is precisely the defect this replaces:
+    it returns a surface from some other column at any height, which the
+    caller then trusted as an in-place seed.
+
+    `height_band` is the destination region's own vertical extent (see
+    `destination_height_band`). Where it admits at least one of this column's
+    surfaces, selection is restricted to those; where it admits none, the
+    band is ignored and the nearest-Y surface is used exactly as before.
+
+    That asymmetry is deliberate and measured. Over all 843 interaction
+    regions in the game, the surface beneath a region's anchor lies inside
+    that region's own band in 835 cases, has no surface at all in 6, and
+    falls outside in 2 (`D6_fort_4F` 9, `S3_labo_B1up` 1). Making the band a
+    hard gate would refuse those 2 outright and gain nothing measurable, so
+    it filters when it can and abstains when it cannot -- it may re-rank the
+    candidates at a column, never empty it.
+
+    (The tighter alternative, gating on `position.y` +-
+    `DESTINATION_PROJECTION_MAX_VERTICAL_GAP`, was measured and rejected: 95
+    of 843 regions sit further than that above their own floor, with no
+    in-gap candidate anywhere at their XZ, so it would refuse all 95.)"""
+    candidates = walk_height_candidates(geometry, position.x, position.z)
+    if not candidates:
+        return None
+    if height_band is not None:
+        low, high = height_band
+        in_band = [c for c in candidates if low <= c.height <= high]
+        if in_band:
+            candidates = in_band
+    best = min(candidates, key=lambda c: abs(c.height - position.y))
+    return own_tile, best.layers, best.height
+
+
 def resolve_destination_node(geometry, position, max_ring=DESTINATION_PROJECTION_MAX_RING,
-                              max_vertical_gap=DESTINATION_PROJECTION_MAX_VERTICAL_GAP):
+                              max_vertical_gap=DESTINATION_PROJECTION_MAX_VERTICAL_GAP,
+                              height_band=None):
     """Where should a route toward `position` actually END?
 
     Normally the destination's own tile. But a destination need not sit over
@@ -664,22 +926,42 @@ def resolve_destination_node(geometry, position, max_ring=DESTINATION_PROJECTION
     the player is guided across the room to the foot of the stairs and the
     final approach degrades to direct guidance automatically -- which is
     what a sighted player does too."""
-    direct = resolve_node(geometry, position)
+    own_tile = _tile_key(position.x, position.z, geometry.tile_size)
+    direct = _resolve_at_own_column(geometry, position, own_tile, height_band)
     if direct is not None:
         if not _swept_circle_node_blocked(geometry, direct[0], direct[2]):
-            # No vertical guard here: this branch moves the destination
-            # nowhere (offset 0.0). `resolve_node` already picked the
-            # nearest of the walk surfaces present at the destination's own
-            # XZ, which is the right answer for anything placed above its
-            # own ground -- including `M3_out`'s worldmap exit, a
-            # live-proven route whose warp sits well above the terrace it
-            # belongs to. Only the LATERAL ring search below can put a
-            # destination on a surface that is not its own.
+            # No vertical guard needed on THIS branch: the destination moved
+            # nowhere (offset 0.0), and `resolve_node` picked the nearest of
+            # the walk surfaces genuinely present at the destination's own
+            # XZ. That is the right answer for anything placed above its own
+            # ground -- including `M3_out`'s worldmap exit, a live-proven
+            # route whose warp sits well above the terrace it belongs to.
             return direct + (0.0,)
-        # The destination projects onto floor, but onto a tile the player
-        # could not stand on. Fall through to the ring search for a nearby
-        # tile they could -- routing to the counter's edge is useful; routing
-        # into the counter is not.
+    # Reached when the destination's own column has no walk surface at all,
+    # or has one the player could not stand on. Both fall to the lateral ring
+    # search below, under its `max_vertical_gap` guard -- routing to the
+    # counter's edge is useful, routing into the counter is not.
+    #
+    # This is where the surface-flip lived (live 2026-08-13, `M3_out` region
+    # 6, the Relic Stone cave trigger): a 2-triangle vertical curtain at
+    # z=-23.86 spanning x -39.58..5.18, y -10.00..36.67, standing on the cave
+    # floor at y=-5.04 -- but that floor only exists beneath roughly
+    # x -32..-1. The region's own nearest-point produces a destination out at
+    # x=-38.04 whenever the player is that far west, where there is no
+    # candidate at all. The old code called `resolve_node`, whose OWN 2-ring
+    # fallback then returned the CLIFFTOP two tiles away at y=120.00 -- 130
+    # units above the trigger -- and accepted it as an in-place seed with
+    # offset 0.0 and no vertical test. The route targeted the clifftop (1637
+    # nodes, "8 units away") instead of the cave (1861 nodes, "686 units
+    # away"), flipping with the player's x.
+    #
+    # `_resolve_at_own_column` no longer ring-searches, so that case arrives
+    # here instead, and this search refuses any surface further than
+    # `max_vertical_gap` from the destination's own Y -- for a region-backed
+    # destination, the region's floor (`Region.anchor[1]`, the minimum Y of
+    # its own triangles). The clifftop is 130 units from it and correctly
+    # refused; the cave floor is 4.96 and accepted. The destination's surface
+    # is thereby a property of the region, not of where the player stands.
     origin = _tile_key(position.x, position.z, geometry.tile_size)
     ox, oz = origin
     for ring in range(1, max_ring + 1):
@@ -712,8 +994,39 @@ def resolve_destination_node(geometry, position, max_ring=DESTINATION_PROJECTION
     return None
 
 
+def _height_allowance(geometry, from_point, to_point, tolerance):
+    """How much height two node points may differ by and still be one
+    continuous surface.
+
+    `HEIGHT_CONTINUITY_TOLERANCE` is a per-STEP limit, calibrated when every
+    node sat at its tile centre and neighbours were therefore exactly
+    `tile_size` apart. Node relocation (`_best_clearance_point`) broke that
+    assumption: it picks each tile's roomiest point independently, so two
+    adjacent tiles' nodes can move in opposite directions and end up much
+    further apart than one tile.
+
+    **Live 2026-08-14, `M3_out`.** The project owner walked down the hillside
+    at z~82 -- measured from their own positions, a ~42 degree slope dropping
+    7-8 units per 8 units travelled, comfortably inside the tolerance. But
+    the graph refused every downhill edge off the terrace: tile (5,11)'s node
+    had relocated to (41,95) and tile (5,10)'s to (47,81), **15.2 units
+    apart** rather than 8, and the resulting 18.92-unit height difference was
+    compared against a limit meant for a single 8-unit step. Every route down
+    that hill was refused, so the flow field detoured east hunting for a
+    shallower way in and walked the player in circles at the cliff edge.
+
+    Treating the constant as a GRADIENT instead of a step restores what it
+    was always measuring -- how steep a surface may be and still be walkable
+    -- and makes it independent of where relocation happened to put the two
+    nodes. At the nominal one-tile spacing the allowance is exactly the old
+    value, so no edge that used to be open closes."""
+    distance = math.dist(from_point, to_point)
+    return max(tolerance, tolerance * distance / geometry.tile_size)
+
+
 def _connected_walk_candidate(geometry, x, z, from_layers, from_height,
-                               tolerance=HEIGHT_CONTINUITY_TOLERANCE):
+                               tolerance=HEIGHT_CONTINUITY_TOLERANCE,
+                               from_point=None):
     """Find the walk-model surface at `(x, z)` that is actually reachable
     from a tile whose current layer set is `from_layers` -- the PRIMARY
     connectivity gate is layer-set intersection (a same-layer surface, or
@@ -726,7 +1039,9 @@ def _connected_walk_candidate(geometry, x, z, from_layers, from_height,
     `from_layers` at all."""
     candidates = walk_height_candidates(geometry, x, z)
     connected = [c for c in candidates if c.layers & from_layers]
-    connected = [c for c in connected if abs(c.height - from_height) <= tolerance]
+    allowance = tolerance if from_point is None else _height_allowance(
+        geometry, from_point, (x, z), tolerance)
+    connected = [c for c in connected if abs(c.height - from_height) <= allowance]
     if not connected:
         return None
     best = min(connected, key=lambda c: abs(c.height - from_height))
@@ -1006,7 +1321,8 @@ def _swept_circle_node_blocked(geometry, key, height, node_points=None):
 
 
 def _try_edge(geometry, from_key, from_height, from_layers, to_key,
-               exempt_tiles=frozenset(), node_points=None):
+               exempt_tiles=frozenset(), node_points=None,
+               blocked_segments=()):
     """Returns `(height, layers)` for `to_key` if it's walkably connected
     from `from_key`/`from_layers`/`from_height`: `to_key` is within the
     room's overall geometry bounds, the walk model has a surface there that
@@ -1024,7 +1340,9 @@ def _try_edge(geometry, from_key, from_height, from_layers, to_key,
     x, z = node_point(geometry, to_key, node_points, from_height)
     # Floor support is required regardless: the hit model has authority over
     # obstacles, never over whether there is ground here.
-    connected = _connected_walk_candidate(geometry, x, z, from_layers, from_height)
+    connected = _connected_walk_candidate(
+        geometry, x, z, from_layers, from_height,
+        from_point=node_point(geometry, from_key, node_points, from_height))
     if connected is None:
         return None
     # A tile the player is DEMONSTRABLY standing in is occupiable, whatever
@@ -1055,7 +1373,68 @@ def _try_edge(geometry, from_key, from_height, from_layers, to_key,
     if _swept_circle_blocked(geometry, from_key, to_key, height,
                               node_points, exempt_tiles):
         return None
+    # Last, because it is the only test that asks about consequences rather
+    # than geometry: this leg is walkable, but taking it would fire a
+    # trigger the route was not asked to fire. See `blocked_segments` on
+    # `flow_field_from`.
+    if blocked_segments and _crosses_blocked_segment(
+            node_point(geometry, from_key, node_points, from_height),
+            (x, z), blocked_segments):
+        return None
     return connected
+
+
+TRIGGER_CROSSING_MARGIN = 1.0
+"""How close, in world units, a route leg may pass to a trigger curtain it
+is not allowed to fire.
+
+Small deliberately. The first version of this test blocked whole TILES that
+a trigger touched, which is 8 units of rounding in every direction, and
+measured on `M6_out` that collapsed the player's reachable component from
+23,488 tiles to 1,961: Gateon Port's doors sit in narrow gaps between
+buildings, so swallowing the gap swallowed the route through it. Blocking
+the CROSSING instead leaves the gap open and only refuses legs that
+actually pass through the curtain, which is the thing that fires it.
+
+Not zero, because a leg grazing the curtain's own plane is not meaningfully
+different from crossing it, and float geometry should not decide which."""
+
+
+def region_crossing_segments(region):
+    """A region's triangles as XZ segments, for `blocked_segments`.
+
+    Warp curtains are vertical planes -- every one measured in `M6_out` has
+    zero depth in one axis and 25-75 units of height -- so their XZ shadow
+    is a line, and each triangle contributes its own longest projected edge.
+    Using the longest edge (rather than all three) is exact for a plane seen
+    from above and conservative for anything else, since the longest edge
+    spans the triangle's whole footprint."""
+    segments = []
+    for triangle in region.triangles:
+        projected = [(vertex[0], vertex[2]) for vertex in triangle]
+        pairs = ((0, 1), (1, 2), (2, 0))
+        a, b = max(pairs, key=lambda pair: math.dist(
+            projected[pair[0]], projected[pair[1]]))
+        if math.dist(projected[a], projected[b]) < 1e-6:
+            continue
+        segments.append((projected[a], projected[b]))
+    return tuple(segments)
+
+
+def _crosses_blocked_segment(start, end, blocked_segments,
+                              margin=TRIGGER_CROSSING_MARGIN):
+    """Does the leg from `start` to `end` pass through a trigger curtain?
+
+    Reuses `_segment_segment_distance`, the same primitive the swept wall
+    test already uses, so a curtain is refused on exactly the geometry a
+    wall would be."""
+    if not blocked_segments:
+        return False
+    for segment_start, segment_end in blocked_segments:
+        if _segment_segment_distance(
+                start, end, segment_start, segment_end) <= margin:
+            return True
+    return False
 
 
 def uniform_edge_cost(geometry, from_key, to_key):
@@ -1101,9 +1480,39 @@ class FlowField:
         return Position(x, self.node_height[node], z)
 
 
+def connected_components(geometry):
+    """`{tile: component_id}` over the ordinary edge predicate.
+
+    **Not used by routing. Kept for diagnostics only -- see the measurement
+    below before wiring it into anything hot.**
+
+    It was briefly used as a fast-refusal shortcut in `flow_field_toward`,
+    on the reasoning that answering "can the player's component reach this
+    destination" from a cached map beats a second flood of a 21000-node
+    room. Measured on `M6_out`, the room that reasoning was aimed at, one
+    route request took:
+
+        with the shortcut     29.10 s
+        without                2.28 s
+
+    Building the map floods the WHOLE room through `_try_edge` before it can
+    answer anything, which costs far more than the single flood it avoids --
+    and the player pays it on their first activation in the room, which is
+    exactly the moment that must not stall. It was removed the same day it
+    was added.
+
+    Recorded rather than deleted because the idea is sound in principle and
+    will occur to the next person: it needs an incremental or lazily-bounded
+    component structure, not a full-room flood, to be worth having."""
+    raise NotImplementedError(
+        "connected_components was removed from routing after measurement; "
+        "see its docstring")
+
+
 def flow_field_toward(geometry, destination_position, origin_position,
                        edge_cost=uniform_edge_cost, max_tiles=MAX_TILES,
-                       blocked_nodes=frozenset()):
+                       blocked_nodes=frozenset(), destination_region=None,
+                       blocked_segments=()):
     """`flow_field_from`, but guaranteed to be seeded somewhere the player
     can actually reach when the destination itself is off-floor.
 
@@ -1142,62 +1551,204 @@ def flow_field_toward(geometry, destination_position, origin_position,
     # strictly better sample of it than its centre. See `node_point`.
     points = ({origin_seed[0]: (origin_position.x, origin_position.z)}
               if origin_seed else None)
+    # The destination region's own vertical extent, used to keep the seed on
+    # the surface the region belongs to rather than whichever surface happens
+    # to be nearest -- see `_resolve_at_own_column`. Computed once here; the
+    # same band already governs ARRIVAL below, so seeding and arrival now
+    # agree about which storey the destination is on instead of each deciding
+    # separately.
+    seed_band = destination_height_band(destination_position, destination_region)
     field = flow_field_from(
         geometry, destination_position, edge_cost, max_tiles, blocked_nodes,
-        exempt, points)
+        exempt, points, seed_band, blocked_segments)
     if origin_seed is None:
         return field
     origin_node = (origin_seed[0], origin_seed[1])
     if field is not None and origin_node in field.node_height:
         return field
-    if field is None and resolve_destination_node(
-            geometry, destination_position, max_vertical_gap=math.inf) is None:
-        # Unseedable even with the vertical guard lifted: there is no real
-        # floor within `DESTINATION_PROJECTION_MAX_RING` of this destination
-        # on ANY level, so it is not merely on another storey -- it is not
-        # this room's business. Guiding toward the reachable point "nearest"
-        # such a destination would repeat the lateral projection's mistake
-        # at a larger scale.
-        #
-        # Reusing the projection's own reach is what makes this principled
-        # rather than a second opinion about how far is too far: the
-        # fallback is willing to help exactly when projection would have
-        # been, and declines on height alone rather than on distance.
-        return field
-    # The seed was unreachable from the player, or there was no seed at all
-    # for a destination this room does contain. Find what IS reachable.
+    # The direct seed did not reach the player. Retry ONCE, seeded on the
+    # destination's own arrival tiles, and accept only if that produces a
+    # continuous ordinary route back to the player.
+    #
+    # Why this and not "nearest reachable point": see the block comment on
+    # `ARRIVAL_RADIUS`/`destination_target_tiles` and the removal note above.
+    # Distance-based acceptance misled the player in 86.9% of the routes it
+    # accepted; local connectivity into the destination's own interaction
+    # region is what actually predicts usefulness.
+    #
+    # There is no second fallback inside this. Every edge below is the
+    # ordinary `_try_edge` predicate -- same walk layers, wall tests,
+    # collision radius, corner rules, floor support and transitions the
+    # flood fill uses everywhere else. If no arrival tile is reachable, the
+    # answer is no route.
+    targets = destination_target_tiles(
+        geometry, destination_position, destination_region)
+    # Fast refusal. Connected components are computed once per room, so
+    # asking "is any arrival tile even in the player's component" is two
+    # dictionary lookups against a second full flood -- which in `M6_out`
+    # (21000 nodes) is most of a six-second build.
+    #
     reachable = flow_field_from(
         geometry, origin_position, edge_cost, max_tiles, blocked_nodes, exempt,
-        points)
+        points, None, blocked_segments)
     if reachable is None:
-        return field
+        return None
+    band = seed_band
+    """Arrival uses the same band the seed did -- see `seed_band` above."""
     best = None
-    for node in reachable.node_height:
-        tile = node[0]
-        cx, cz = node_point(geometry, tile, points)
-        distance = math.dist(
-            (cx, cz), (destination_position.x, destination_position.z))
-        if best is None or distance < best[0]:
-            best = (distance, tile, reachable.node_height[node])
+    for node, height in reachable.node_height.items():
+        if node[0] not in targets:
+            continue
+        if band is not None and not (band[0] <= height <= band[1]):
+            # Standing above or below the trigger is not arriving at it.
+            # See `destination_height_band` for the clifftop route this
+            # rejects.
+            continue
+        cost = reachable.cost_so_far.get(node, math.inf)
+        if best is None or cost < best[0]:
+            best = (cost, node, height)
     if best is None:
-        return field
-    _distance, tile, height = best
-    cx, cz = node_point(geometry, tile, points)
+        # Nothing the player can walk to is inside the destination itself.
+        #
+        # **This is where refusing outright was wrong** (live, 2026-08-13).
+        # Agate's Relic Stone cave sits in a 26-node pocket the graph never
+        # joins, and the nearest reachable ground is 7.3 units from its mouth
+        # horizontally -- the doorstep. The player had been using that: walk
+        # to there, then step down. Refusing took a working journey away.
+        #
+        # The old rule delivered it by calling that point the route and
+        # reporting VERIFIED, which is how the same mechanism also walked
+        # people 1678 units to the wrong place in silence. Both problems come
+        # from the CLAIM, not the guidance. So guidance is offered and the
+        # claim is dropped: this returns a field flagged `partial`, carrying
+        # how far short it stops, and the guide says so out loud.
+        #
+        # That is also why there is no distance ceiling here. A ceiling was
+        # only ever a proxy for "is this claim safe to make", and measurement
+        # showed no distance predicts that (see the removal note above).
+        # Saying "seven units short" and saying "sixteen hundred units short"
+        # are both honest; the player decides which is worth walking.
+        # Resolve the walk surface once with the same region evidence used by
+        # the real destination seed.  A region's full Y span is not itself a
+        # floor band: M3_out's cave exit is a vertical trigger curtain from
+        # y=-10 to y=36.67, which made the y=40 terrace look acceptable even
+        # though the trigger's resolved walk floor is y=-5.04.
+        intended_height = None
+        if field is not None and field.destination_node in field.node_height:
+            # The first field is already seeded on the resolved destination
+            # floor. Reuse that answer instead of resolving the raw trigger
+            # coordinate a second time with subtly different constraints.
+            intended_height = field.node_height[field.destination_node]
+        else:
+            intended = resolve_destination_node(
+                geometry, destination_position, height_band=seed_band)
+            if intended is not None:
+                intended_height = intended[2]
+        if intended_height is None:
+            # Not this room's business at all: no real floor within
+            # `DESTINATION_PROJECTION_MAX_RING` of it on ANY level. Offering
+            # to walk someone "toward" a destination the room does not
+            # contain is noise, not partial help -- and reusing the
+            # projection's own reach is what keeps that a principled line
+            # rather than a second opinion about how far is too far.
+            return None
+        partial = None
+        for node, height in reachable.node_height.items():
+            # Nearest means nearest on the destination's actual walk
+            # surface, not nearest in the XZ projection.  Without this, a
+            # cliff or roof directly above an unreachable doorway beats the
+            # real doorstep a few units sideways.  Live M3_out did exactly
+            # that: destination floor ~= -5, chosen endpoint = 120, and the
+            # guide declared arrival on top of the Relic Stone cave.
+            if abs(height - intended_height) > HEIGHT_CONTINUITY_TOLERANCE:
+                continue
+            point = node_point(geometry, node[0], points, height)
+            distance = math.dist(
+                point, (destination_position.x, destination_position.z))
+            if partial is None or distance < partial[0]:
+                partial = (distance, node[0], height, point)
+        if partial is None:
+            return None
+        shortfall, tile, height, point = partial
+        rebuilt = flow_field_from(
+            geometry, Position(point[0], height, point[1]), edge_cost,
+            max_tiles, blocked_nodes, exempt, points, None, blocked_segments)
+        if rebuilt is None or origin_node not in rebuilt.node_height:
+            return None
+        if rebuilt.stats is not None:
+            rebuilt.stats["partial_guidance"] = True
+            rebuilt.stats["partial_shortfall"] = shortfall
+            rebuilt.stats["partial_vertical"] = height - destination_position.y
+        return rebuilt
+    _cost, arrival_node, height = best
+    tile = arrival_node[0]
+
+    # Preserve the full destination-seeded field whenever it can reach the
+    # player.  That field lets the player deviate and rejoin anywhere in the
+    # connected area.  The narrow player-origin chain below exists only for
+    # genuinely direction-asymmetric slope data; preferring it globally made
+    # ordinary routes report "player node not linked" on every small
+    # deviation (live M5_out, 2026-08-13).
+    cx, cz = node_point(geometry, tile, points, height)
     rebuilt = flow_field_from(
-        geometry, Position(cx, height, cz), edge_cost, max_tiles, blocked_nodes,
-        exempt, points)
-    if rebuilt is None or origin_node not in rebuilt.node_height:
-        return field
-    if rebuilt.stats is not None:
-        rebuilt.stats["reseeded_for_reachability"] = True
-        rebuilt.stats["target_projection_offset"] = _distance
-    return rebuilt
+        geometry, Position(cx, height, cz), edge_cost, max_tiles,
+        blocked_nodes, exempt, points, None, blocked_segments)
+    if rebuilt is not None and origin_node in rebuilt.node_height:
+        if rebuilt.stats is not None:
+            rebuilt.stats["reseeded_for_reachability"] = True
+            rebuilt.stats["seeded_on_arrival_tile"] = True
+            rebuilt.stats["target_projection_offset"] = math.dist(
+                (cx, cz),
+                (destination_position.x, destination_position.z))
+        return rebuilt
+
+    # `reachable` was expanded FROM the player in the direction they will
+    # actually walk.  Usually rebuilding from the arrival tile produces the
+    # same graph in reverse.  Sloped relocated nodes exposed that this is not
+    # guaranteed: in live M3_out the same layer-1 tile resolved to y=13.70
+    # from above and y=8.14 from below, so downhill routing worked and the
+    # identical uphill journey failed.  The player-origin flood already
+    # contains a fully validated chain to the arrival tile; reverse that
+    # chain into the `next_hop` representation instead of demanding that a
+    # second, direction-dependent flood rediscover it backwards.
+    outward = reconstruct_route(reachable, arrival_node)
+    if outward:
+        route_nodes = list(reversed(outward))
+        next_hop = {
+            route_nodes[i]: route_nodes[i + 1]
+            for i in range(len(route_nodes) - 1)
+        }
+        costs = {arrival_node: 0.0}
+        running = 0.0
+        for i in range(len(route_nodes) - 2, -1, -1):
+            running += edge_cost(
+                geometry, route_nodes[i][0], route_nodes[i + 1][0])
+            costs[route_nodes[i]] = running
+        stats = dict(reachable.stats or {})
+        stats["reseeded_for_reachability"] = True
+        stats["seeded_on_arrival_tile"] = True
+        stats["reversed_origin_chain"] = True
+        cx, cz = node_point(geometry, tile, points, height)
+        stats["target_projection_offset"] = math.dist(
+            (cx, cz), (destination_position.x, destination_position.z))
+        return FlowField(
+            next_hop=next_hop,
+            node_height={node: reachable.node_height[node]
+                         for node in route_nodes},
+            cost_so_far=costs,
+            destination_node=arrival_node,
+            tile_size=geometry.tile_size,
+            stats=stats,
+            node_points=reachable.node_points)
+
+    return None
 
 
 def flow_field_from(geometry, destination_position,
                      edge_cost=uniform_edge_cost, max_tiles=MAX_TILES,
                      blocked_nodes=frozenset(), exempt_tiles=frozenset(),
-                     node_points=None):
+                     node_points=None, height_band=None,
+                     blocked_segments=()):
     """Uniform-cost search outward from `destination_position`'s resolved
     node, recording `next_hop[node] = the neighbor node that discovered it`
     -- i.e. pointing back toward the destination. This is both "expand to
@@ -1210,6 +1761,14 @@ def flow_field_from(geometry, destination_position,
     that avoids a specific waypoint node that already failed real
     player-progress validation once, so a rebuild can't immediately hand
     back the exact same bad hop.
+
+    `blocked_segments` are XZ line segments no route leg may cross -- the
+    warp/door trigger curtains this route is not supposed to fire (see
+    `region_crossing_segments`, and `navigation_service.NavigationService.
+    room_change_regions` for the live failure that made this necessary).
+    They are not tiles and not nodes: a trigger is a line in the world, and
+    a route must be free to walk right up beside a shop door as long as it
+    does not walk THROUGH it.
 
     Returns `None` if the destination can't be seeded onto any walk-model
     surface, or if the search exceeds `max_tiles` (the caller should fall
@@ -1230,7 +1789,8 @@ def flow_field_from(geometry, destination_position,
         "rejected_nodes": 0,
         "nodes": 0,
     }
-    seed = resolve_destination_node(geometry, destination_position)
+    seed = resolve_destination_node(
+        geometry, destination_position, height_band=height_band)
     if seed is None:
         return None
     stats["target_projected"] = True
@@ -1257,7 +1817,7 @@ def flow_field_from(geometry, destination_position,
         for dx, dz in _ORTHOGONAL:
             neighbor_tile = (ix + dx, iz + dz)
             result = _try_edge(geometry, tile, height, layers, neighbor_tile,
-                               exempt_tiles, node_points)
+                               exempt_tiles, node_points, blocked_segments)
             if result is None:
                 stats["rejected_edges"] += 1
                 continue
@@ -1278,7 +1838,7 @@ def flow_field_from(geometry, destination_position,
                 continue
             neighbor_tile = (ix + dx, iz + dz)
             result = _try_edge(geometry, tile, height, layers, neighbor_tile,
-                               exempt_tiles, node_points)
+                               exempt_tiles, node_points, blocked_segments)
             if result is None:
                 stats["rejected_edges"] += 1
                 continue
@@ -1556,6 +2116,23 @@ def diagnose_unreachable(geometry, start_position, destination_position,
             return ("floor_support",
                     "both endpoints project onto real floor, but no chain of "
                     "walkable tiles connects them")
+    # Both endpoints are real, standable and on the same level, and neither
+    # projection nor clearance explains anything -- so ask the question
+    # directly rather than shrugging. Flooding from the start is the same
+    # work a route build does, and this only runs on a failure.
+    #
+    # Added 2026-08-12: the Relic Stone cave reported `unknown`, which is the
+    # least useful answer available at exactly the moment the log most needed
+    # a real one. The room's passage genuinely splits into pockets, and
+    # "disconnected" is both true and actionable.
+    reachable = flow_field_from(geometry, start_position)
+    if reachable is not None and not any(
+            node[0] == dest_tile for node in reachable.node_height):
+        return ("disconnected",
+                f"both endpoints are standable and on the same level, but "
+                f"they are in separate pockets of this room -- {len(reachable.node_height)} "
+                f"tiles are reachable from the player and the destination is "
+                f"not among them")
     return ("unknown",
             "no single cause isolated -- endpoints project, clearance is "
             "fine, and heights are compatible")

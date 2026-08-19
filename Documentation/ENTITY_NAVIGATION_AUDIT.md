@@ -543,11 +543,29 @@ runtime generation. Defect **X4**.
 ### Cause H — runtime collision-object enable state is a stub
 *Reported symptom class: bridges.*
 
-`StaticObjectEnableState` answers "always enabled". At Gateon Port, flag
-968 drives `GScolsys2SetObjEnable` on CCD entries 23–31 (the bridge's hit
-models; the walk decks 44–62 are never toggled). With everything reported
-enabled, `build_room_geometry` includes all nine blockers in all four
-alignments, so routing is wrong in every alignment. Defect **B1**.
+**FIXED 2026-08-13, live-validated.** `StaticObjectEnableState`
+answered "always enabled". At Gateon Port, flag 968 drives
+`GScolsys2SetObjEnable` on CCD entries 23–31 (the bridge's hit models; the
+walk decks 44–62 are never toggled). With everything reported enabled,
+`build_room_geometry` included all nine blockers in all four alignments, so
+routing was wrong in every alignment. Defect **B1**.
+
+`LiveObjectEnableState` now reads the engine's own `obj[i].flags` bit 0 and
+`NavigationService.refresh_enable_state` invalidates cached geometry and
+discards any active route when the signature changes, so an alignment change
+rebuilds rather than steering on stale geometry. The structure, its
+derivation and its verification are in COLLISION_DETECTION_INVESTIGATION.md
+§"Runtime object-enable state". **Confirmed against a running game
+2026-08-13** in `M3_out` (object 33 reported disabled; the statically
+predicted 1861-node component reproduced exactly; the `disconnected`/partial
+failures stopped). The Gateon cross-check against `pier_def`/flag 968 remains
+worth running as an independent second oracle, because Agate does not
+exercise a **mid-session** toggle and Gateon does.
+
+This was never Gateon-specific: the same stub sealed Agate's Relic Stone cave
+mouth into a 26-tile pocket (`M3_out` object 33) and split the cave interior
+(`M3_cave_1F_1` objects 4 and 5). 27 of 212 room scripts toggle collision
+objects.
 
 Bridges also have no entity-nav presence at all (**B2**), positions come
 from 16 hardcoded coordinate boxes (**B3**), and there is no bridge

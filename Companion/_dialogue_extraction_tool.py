@@ -43,6 +43,33 @@ def cstr(data, off):
 
 
 def decode_lzss(src, out_size):
+    """Decompress one LZSS stream into a fixed `out_size` buffer.
+
+    The output buffer is allocated at `out_size` and zero-filled, and
+    decoding stops when either the buffer is full or the compressed input
+    runs out -- whichever happens first. The input running out first is
+    NOT treated as an error, because a declared size larger than the
+    stream is a real condition in real images rather than a sign of
+    corruption.
+
+    It was found in Pokemon XG 1.2.1's `common.fsys`, whose
+    `DeckData_DarkPokemon_EU.bin` declares 500 bytes (in both the FSYS
+    entry and the LZSS header) from a stream that encodes exactly 208.
+    208 is not an arbitrary stopping point: the decoded bytes begin with
+    a `DECK` header whose own self-declared length field reads 208, so
+    the stream is complete for the data that actually exists and only the
+    outer size fields disagree. The console never notices -- it
+    decompresses into a fixed-size allocation and reads only the length
+    the `DECK` header gives -- and neither does a US build, which does
+    not read the EU deck at all.
+
+    Raising here instead cost far more than the entry is worth: every
+    loader in the companion reaches its own table through `parse_fsys`,
+    which decodes every entry in the archive, so one short stream in a
+    file nothing reads took down species names, moves, items, warps and
+    dialogue together. Zero-padding keeps the failure proportional to the
+    damage: callers that want the short entry get its real bytes followed
+    by zeros, and callers that want any other entry are unaffected."""
     N = 4096
     F = 18
     THRESHOLD = 2
@@ -52,6 +79,7 @@ def decode_lzss(src, out_size):
         raise RuntimeError(f"Invalid LZSS magic: {magic!r}")
     in_size = u32(src, 8)
     src = src[16:16 + (in_size - 16)]
+    available = len(src)
     dst = bytearray(out_size)
     dst_pos = 0
     text_buf_pos = N - F
@@ -59,10 +87,14 @@ def decode_lzss(src, out_size):
     pos = 0
     while dst_pos < out_size:
         if not (flag & 0x100):
+            if pos >= available:
+                break
             value = src[pos]
             pos += 1
             flag = 0xFF00 | value
         if flag & 1:
+            if pos >= available:
+                break
             value = src[pos]
             pos += 1
             dst[dst_pos] = value
@@ -70,12 +102,19 @@ def decode_lzss(src, out_size):
             dst_pos += 1
             text_buf_pos = (text_buf_pos + 1) % N
         else:
+            if pos + 1 >= available:
+                break
             byte1 = src[pos]
             byte2 = src[pos + 1]
             pos += 2
             ofs = ((byte2 & 0xF0) << 4) | byte1
             copy_size = (byte2 & 0xF) + THRESHOLD + 1
             for _ in range(copy_size):
+                # A back-reference near the end of the buffer can name
+                # more bytes than remain; the surplus belongs to nothing
+                # and is dropped rather than overrunning the allocation.
+                if dst_pos >= out_size:
+                    break
                 v = text_buf[ofs]
                 dst[dst_pos] = v
                 text_buf[text_buf_pos] = v

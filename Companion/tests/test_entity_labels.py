@@ -81,12 +81,12 @@ class DayCareLabelTests(unittest.TestCase):
         self.assertEqual(
             player_facing_room_name(
                 "M3_houseD_1F", {"M3_houseD_1F": "Day-Care"}),
-            "Agate Village Day-Care, 1st floor")
+            "Day-Care, 1st floor")
 
     def test_a_house_with_no_service_stays_generic(self):
         self.assertEqual(
             player_facing_room_name("M3_houseB_1F", {}),
-            "house in Agate Village, 1st floor")
+            "house, 1st floor")
 
     def test_a_service_never_renames_a_room_the_code_already_names(self):
         # M2_out has a vending machine. It is not "Pyrite Town Pokemon Mart".
@@ -95,14 +95,14 @@ class DayCareLabelTests(unittest.TestCase):
             "Pyrite Town")
         self.assertEqual(
             player_facing_room_name("M3_pc_1F", {"M3_pc_1F": "Pokemon Center"}),
-            "Agate Village Pokemon Center, 1st floor")
+            "Pokemon Center, 1st floor")
 
     def test_build_room_names_threads_the_services_through(self):
         names = build_room_names(
             {0x83: "M3_houseD_1F", 0x80: "M3_houseB_1F"},
             {"M3_houseD_1F": "Day-Care"})
-        self.assertEqual(names[0x83], "Agate Village Day-Care, 1st floor")
-        self.assertEqual(names[0x80], "house in Agate Village, 1st floor")
+        self.assertEqual(names[0x83], "Day-Care, 1st floor")
+        self.assertEqual(names[0x80], "house, 1st floor")
 
     @unittest.skipUnless(HAVE_ASSETS, "generated assets not present")
     def test_the_generated_table_puts_the_day_care_on_house_d(self):
@@ -116,10 +116,10 @@ class DayCareLabelTests(unittest.TestCase):
                  json.loads(ROOMS.read_text(encoding="utf-8")).items()}
         names = build_room_names(
             codes, json.loads(SERVICES.read_text(encoding="utf-8")))
-        self.assertEqual(names[0x83], "Agate Village Day-Care, 1st floor")
-        self.assertEqual(names[0x86], "Agate Village Pokemon Mart, 1st floor")
+        self.assertEqual(names[0x83], "Day-Care, 1st floor")
+        self.assertEqual(names[0x86], "Pokemon Mart, 1st floor")
         self.assertEqual(names[0x85],
-                         "Agate Village Pokemon Center, 1st floor")
+                         "Pokemon Center, 1st floor")
         self.assertEqual(names[0x87], "Relic Stone")
         self.assertNotIn("Day-Care", names[0x80])
         for room in (0x7F, 0x80, 0x81):
@@ -296,6 +296,46 @@ class OnwardDestinationTests(unittest.TestCase):
         self.assertEqual(
             [e.label for e in _disambiguate_labels(entities, {}, {}, 0x84)],
             ["to world map"])
+
+
+class PurifyChamberLabelTests(unittest.TestCase):
+    """The one PC that is a Purify Chamber terminal, and only that one."""
+
+    def test_the_hq_lab_pc_is_named_the_purify_chamber(self):
+        from battle_narrator.authoritative_warps import PC_LABEL_OVERRIDES
+        self.assertEqual(PC_LABEL_OVERRIDES.get(695), "Purify Chamber")
+
+    def test_every_other_pc_keeps_the_generic_label(self):
+        from battle_narrator.authoritative_warps import PC_LABEL_OVERRIDES
+        self.assertEqual(list(PC_LABEL_OVERRIDES), [695])
+
+    @unittest.skipUnless(HAVE_ASSETS, "generated assets not present")
+    def test_record_695_is_the_only_pc_in_the_hq_lab(self):
+        """Pins the identity the override is keyed on. If a re-extraction
+        renumbers the interaction table, this fails rather than silently
+        renaming some unrelated PC."""
+        import struct
+        import _dialogue_extraction_tool as extraction
+        common = COMPANION / "_dialogue_extraction" / "raw" / "files" / "common.fsys"
+        if not common.exists():
+            self.skipTest("extraction not present")
+        files = extraction.parse_fsys(common.read_bytes())
+        data = next(f["data"] for f in files
+                    if f["name"] in {"common.rel", "common_rel"})
+        rel = extraction.RelFile(data)
+        table = rel.get_pointer(62)
+        count = struct.unpack_from(">I", data, rel.get_pointer(63))[0]
+        pcs = []
+        for index in range(count):
+            offset = table + index * 0x1C
+            if struct.unpack_from(">H", data, offset + 0x08)[0] != 0x0596:
+                continue
+            if struct.unpack_from(">H", data, offset + 0x0A)[0] != 0x0E:
+                continue
+            if struct.unpack_from(">H", data, offset + 0x02)[0] != 0x8C:
+                continue
+            pcs.append((index, data[offset + 0x07]))
+        self.assertEqual(pcs, [(695, 5)])
 
 
 if __name__ == "__main__":

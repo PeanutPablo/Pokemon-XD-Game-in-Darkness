@@ -209,3 +209,83 @@ the same fix cures it. The interaction reference is the **nearest point on
 the region**, and the method byte says what to do on arrival: method 3 =
 stand inside and press A; methods 1 and 2 = arriving *is* the interaction,
 so no facing check and no talk cone apply.
+
+---
+
+## Region-backed navigation: areas, not centroids (2026-08-12)
+
+**Every region-backed destination now routes to its interaction REGION, and
+`VERIFIED` means an ordinary walkable route reaches that region.**
+
+### What an interaction region is
+
+A region is an AREA -- a trigger volume the player walks into -- held as its
+own triangles by `region_geometry.Region`. Its centroid survives only as a
+stable anchor for ordering and diagnostics. It is not, and must not become
+again, the authoritative destination: measured over all 843 regions in 177
+rooms, 210 have a centroid lying OUTSIDE their own geometry, worst case
+168.9 units of empty space (`D3_out` index 1; `D1_out` index 2 is 161.9).
+
+**Corrected 2026-08-12:** those two worst cases are NOT disjoint volumes, as
+first assumed. Measured, both are a single connected region -- a long
+concave strip -- whose centroid falls in the empty middle. Genuine
+multi-volume regions do exist and were measured separately: **126 of 843
+(14.9%)** have more than one component (124 with two, 2 with four, worst
+`M1_pc_1F` index 3 and `D1_out` index 1). Their centroids sit much closer to
+their geometry (0.7-15.1 units), so the two defects are independent:
+concavity produces the extreme centroid errors, fragmentation produces the
+"which volume am I being sent to" problem.
+
+Spoken direction and distance already use `Region.nearest_point` relative to
+the player (Phase 3b, 2026-08-10). Routing now uses the same geometry.
+
+### Sources carrying their region
+
+All five region-backed sources in `authoritative_warps.py` publish
+`metadata["region"]`, which `AudioGuideReader` passes to
+`NavigationService` and on to `pathfinding.flow_field_toward`:
+
+| source | category |
+|---|---|
+| `AuthoritativeWarpEntitySource` | warp / exit |
+| `AuthoritativeDoorEntitySource` | door |
+| `AuthoritativeElevatorEntitySource` | elevator |
+| `AuthoritativePCEntitySource` | PC |
+| `AuthoritativeTextEntitySource` | sign |
+
+True point-backed entities (NPCs) are deliberately unchanged; they route
+against the real arrival radius instead.
+`tests/test_authoritative_warps.py::RegionCarriedEndToEndTests` fails if a
+source stops carrying its region, because a source that omits it silently
+downgrades to the point path and nothing else would notice.
+
+### Acceptance is connectivity, not distance
+
+`pathfinding.destination_target_tiles` derives ARRIVAL TILES from the
+region's triangles (or the arrival radius for a point). A route is accepted
+only when an ordinary walkable path -- same walk layers, wall tests,
+collision radius, corner rules, floor support -- reaches one of them, and
+the field is then re-seeded there so the route is continuous into the
+region. `REACHABILITY_FALLBACK_MAX_OFFSET` and every distance-based
+acceptance rule are **retired**.
+
+Why: measured over all 3230 interaction-point pairs, the old 64-unit rule
+accepted 2024 routes of which only 265 were locally useful. Above the real
+4-unit arrival radius, distance carries no signal at all -- the hit rate is
+5-11% in every band, and 74.4% of reseeds landing within 8 units of their
+destination were still on the far side of a wall.
+
+### Coverage is intentionally lower
+
+Routed coverage fell from 69.3% to roughly 43% of interaction pairs. That
+drop is the false routing being removed, not capability being lost. The
+invariant that matters is zero known false `VERIFIED` routes.
+
+### Known outcomes worth remembering
+
+- `M3_cave_1F_1` (Relic Stone cave) refuses toward the shrine exit with
+  `cause=disconnected`; the pair that genuinely connects still routes.
+- `D1_garage_1F`'s basement warps refuse: no walk surface exists beneath
+  either region anywhere in that room. They are the stairs to another
+  floor, and the old rule "worked" by guiding 70 units to the south wall.
+- Cross-level destinations remain diagnosed, not solved.

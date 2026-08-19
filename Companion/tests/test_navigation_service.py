@@ -426,8 +426,8 @@ class RouteProgressValidationTests(unittest.TestCase):
         self.assertTrue(first.path_available)
 
         after_first_failure = force_waypoint_failure(self, service, clock)
-        # Plenty of alternative hops here -- the first rebuild (avoiding the
-        # one failed node) succeeds and keeps routing.
+        # The first rebuild starts afresh from the player's new position and
+        # keeps the authoritative graph intact.
         self.assertTrue(after_first_failure.path_available)
         self.assertEqual(service._route.rebuild_attempts, 1)
         self.assertFalse(after_first_failure.progress_invalidated)
@@ -475,7 +475,7 @@ class RouteProgressValidationTests(unittest.TestCase):
             service._route.rebuild_attempts, 0,
             "sustained circling that never closes distance was not caught")
 
-    def test_failed_waypoint_is_excluded_from_the_rebuilt_route(self):
+    def test_failed_waypoint_is_not_removed_from_authoritative_geometry(self):
         clock = FakeClock()
         service = self._service_with_geometry(
             1, walk_rect(0, 30, 0, 3), clock=clock)
@@ -486,7 +486,7 @@ class RouteProgressValidationTests(unittest.TestCase):
         result = force_waypoint_failure(self, service, clock)
         self.assertTrue(result.path_available)
         self.assertIn(failed_node, service._route.failed_nodes)
-        self.assertNotEqual(service._route.current_waypoint_node, failed_node)
+        self.assertIn(failed_node, service._route.flow_field.node_height)
 
     def test_consecutive_waypoints_are_joined_by_verified_collinear_hops(self):
         # Consecutive waypoints must still be joined by a straight line of
@@ -897,45 +897,20 @@ class UTurnWaypointCommitmentTests(unittest.TestCase):
         service._geometry_cache[0x84] = self.geometry
         return service
 
-    def test_the_two_arms_really_do_oppose(self):
-        """Guards the fixture itself: if this room ever stops producing
-        opposing next-hops from the two adjacent rows, the regression below
-        silently stops testing anything.
+    def test_the_logged_walk_really_straddles_the_row_boundary(self):
+        """Guard the live input that drives the two behavioral tests below.
 
-        Asserts on the FLOW FIELD's own next hop rather than on
-        `simplify_route`'s output. The opposition being guarded is a property
-        of the field -- two adjacent tile rows whose optimal hops point
-        opposite ways -- and that is what makes re-deriving the aim point
-        from a drifting live node unsafe. Reading it through the simplifier
-        made this test depend on how waypoints are chosen as well, which is
-        a separate concern and now (correctly) collapses the staircase."""
-        field = flow_field_toward(
-            self.geometry, self.DESTINATION, self.LOGGED_WALK[0])
-        self.assertIsNotNone(field)
-        # SEARCHED, not hardcoded. The original fixture pinned tiles
-        # (-9,-15) and (-7,-16), found by hunting for a destination that
-        # reproduced the logged chain lengths under the geometry of the
-        # time. Correcting passability moved the field, so that exact pair
-        # stopped opposing -- and a hardcoded pair going stale silently
-        # disarms the regression underneath it. What actually has to hold is
-        # that SOME pair of vertically-adjacent tiles in this room has hops
-        # pointing opposite ways along x, since that is the whole reason
-        # re-deriving the aim point from a drifting live node is unsafe.
-        opposing = []
-        for node, hop in field.next_hop.items():
-            (ix, iz), layers = node
-            below = ((ix, iz - 1), layers)
-            other = field.next_hop.get(below)
-            if other is None:
-                continue
-            east = hop[0][0] - ix
-            west = other[0][0] - ix
-            if east > 0 and west < 0:
-                opposing.append((node, below))
-        self.assertTrue(
-            opposing,
-            "no two adjacent tile rows in M3_out have opposing hops any "
-            "more -- this fixture has stopped exercising the U-turn case")
+        Flow fields may now be a validated player-origin chain when the
+        relocated graph cannot be rediscovered backward, so a full-field
+        opposing-hop assertion is no longer an invariant. The actual
+        regression remains what matters: crossing this boundary must not
+        repoint or reverse the committed guide.
+        """
+        rows = {
+            resolve_node(self.geometry, position)[0][1]
+            for position in self.LOGGED_WALK
+        }
+        self.assertGreaterEqual(len(rows), 2)
 
     def test_walking_the_row_boundary_does_not_reverse_the_waypoint(self):
         service = self._service()

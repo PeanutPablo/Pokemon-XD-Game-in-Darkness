@@ -225,5 +225,34 @@ class PCFixedMenuTests(unittest.TestCase):
             [("TODD, Box 1, row 2, column 1, slot 7, level 31.", True)])
 
 
+class PCMainMenuLabelTests(unittest.TestCase):
+    """The project owner's 2026-08-18 report: "the pc says 'save' instead
+    of 'exit'".
+
+    `_poll_fixed` carried its own inline four-entry tuple for menu 122 with
+    a "Save" the real menu does not have, shifting every index from 2 on.
+    The labels now come from the one named constant, so there is no second
+    copy left to disagree."""
+
+    def test_the_home_menu_has_no_phantom_save_entry(self):
+        self.assertEqual(
+            PCMenuReader.MAIN_LABELS,
+            ("Pokemon Storage", "Item Storage", "Exit"))
+        self.assertNotIn("Save", PCMenuReader.MAIN_LABELS)
+
+    def test_exit_is_the_entry_the_player_lands_on(self):
+        # Index 2 is the one that used to announce "Save".
+        self.assertEqual(PCMenuReader.MAIN_LABELS[2], "Exit")
+
+    def test_poll_fixed_reads_the_named_constants(self):
+        # Pinning the fix itself: a re-introduced literal tuple at the call
+        # site is exactly how this menu broke twice.
+        import inspect
+        source = inspect.getsource(PCMenuReader._poll_fixed)
+        self.assertIn("self.MAIN_LABELS", source)
+        self.assertIn("self.MAIN_MENU_ID", source)
+        self.assertNotIn('"Save"', source)
+
+
 if __name__ == "__main__":
     unittest.main()

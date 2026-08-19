@@ -55,10 +55,19 @@ class MoveData:
     def resolve(self, move_id):
         return self.names[move_id], "!"
 
+    def find_id(self, move_name, maximum=None):
+        matches = [
+            move_id for move_id, name in self.names.items()
+            if (maximum is None or move_id <= maximum)
+            and name.casefold() == move_name.casefold()
+        ]
+        return matches[0] if len(matches) == 1 else None
+
     def details(self, move_id):
         values = {
             89: ("Ground", 100, 100), 349: ("Dragon", 0, 0),
             280: ("Fighting", 75, 100), 337: ("Dragon", 80, 100),
+            356: ("Shadow", 0, 100),
         }
         type_name, power, accuracy = values[move_id]
         role = f"power {power}" if power else "status move"
@@ -204,7 +213,7 @@ class Fixture:
             self.backend.put(waza,be16(move_id)+bytes((pp,0)))
         return addresses
 
-    def vs_targets(self, addresses, occupied=(0,1,2,3)):
+    def vs_targets(self, addresses, occupied=(0,1,2,3), with_hp=False):
         p=self.profile
         self.node(addresses[1],p.vs_target_menu_ids[0],addresses[2])
         statuses=(
@@ -213,6 +222,8 @@ class Fixture:
             (2,p.vs_player_status_window_ids[0],"SALAMENCE"),
             (3,p.vs_bottom_target_status_window_id,"KANGASKHAN"),
         )
+        hp_for_name={"RAIKOU":(90,150),"LATIOS":(41,160),
+                     "SALAMENCE":(142,171),"KANGASKHAN":(0,170)}
         present=[item for item in statuses if item[0] in occupied]
         status_nodes=[0x80001000+i*0x100 for i in range(len(present))]
         if status_nodes:
@@ -229,6 +240,10 @@ class Fixture:
             allocation=0x8000A000+slot*0x100
             self.backend.put(work+p.window_alloc_offset,be32(allocation))
             self.backend.put(allocation,gschar(name))
+            if with_hp:
+                current,maximum=hp_for_name[name]
+                self.backend.put(allocation+p.status_max_hp_offset,
+                                 be16(maximum)+be16(current))
 
 
 class VsButtonBattleTests(unittest.TestCase):
@@ -277,6 +292,19 @@ class VsButtonBattleTests(unittest.TestCase):
         f.vs_targets(addresses,occupied=(1,2,3)); f.reader.poll_once()
         self.assertEqual(f.events.values[-1][1],
             "Targets. D-pad up, Latios. D-pad right, Kangaskhan.")
+
+    def test_targets_carry_hp_from_their_own_status_panels(self):
+        # Without an HP bar to look at, a bare name cannot be chosen
+        # between. Each target's HP comes from the panel the game is
+        # displaying it in -- no name matching -- so a KO'd target is
+        # named as one.
+        f=Fixture(); addresses=f.vs_moves(); f.reader.poll_once()
+        f.vs_targets(addresses,with_hp=True)
+        f.reader.poll_once(); f.reader.poll_once()
+        self.assertEqual(f.events.values[-1][1],
+            "Targets. D-pad up, Latios, 41 of 160 HP, 26 percent. "
+            "D-pad down, Raikou, 90 of 150 HP, 60 percent. "
+            "D-pad right, Kangaskhan, 0 of 170 HP, zero percent, fainted.")
 
     def test_target_without_prior_actor_is_silent(self):
         f=Fixture(); addresses=f.vs_moves(); f.vs_targets(addresses)
@@ -338,6 +366,12 @@ class CommandTests(unittest.TestCase):
 
 
 class StoryTargetTests(unittest.TestCase):
+    # Level and major status live on the BATTLER record, not on the status
+    # panel, so they are the half of a target's description that has to be
+    # matched by nickname. Populated here so the tests cover that path.
+    TARGET_LEVELS = {"JOLTEON": 25, "TEDDIURSA": 11, "WINGULL": 14}
+    TARGET_CONDITIONS = {"WINGULL": 5}
+
     def _target_screen(self, f, cursor, actor_name="JOLTEON",
                        opponent_top="WURMPLE"):
         p = f.profile
@@ -395,6 +429,15 @@ class StoryTargetTests(unittest.TestCase):
                 fight_pokemon + p.health_nickname_offset,
                 gschar(name),
             )
+            pokemon = fight_pokemon + p.fight_pokemon_embedded_offset
+            f.backend.put(
+                pokemon + p.pokemon_level_offset,
+                bytes((self.TARGET_LEVELS.get(name, 20),)),
+            )
+            f.backend.put(
+                pokemon + p.pokemon_condition_offset,
+                bytes((self.TARGET_CONDITIONS.get(name, 0),)),
+            )
             fight_pokemon_for_name[name] = fight_pokemon
         eligible = [
             name for name in ("TEDDIURSA", opponent_top, "WINGULL")
@@ -427,9 +470,10 @@ class StoryTargetTests(unittest.TestCase):
 
     def test_jolteon_buttons_follow_live_panel_order_without_actor(self):
         expected = (
-            "Target: Player Teddiursa.",
-            "Target: Opponent Wurmple.",
-            "Target: Opponent Wingull.",
+            "Target: Player Teddiursa, level 11, 28 of 42 HP, 67 percent.",
+            "Target: Opponent Wurmple, level 20, 27 of 27 HP, 100 percent.",
+            "Target: Opponent Wingull, level 14, 26 of 26 HP, 100 percent, "
+            "paralyzed.",
         )
         for cursor, speech in enumerate(expected):
             with self.subTest(cursor=cursor):
@@ -439,9 +483,10 @@ class StoryTargetTests(unittest.TestCase):
 
     def test_teddiursa_buttons_change_by_removing_teddiursa_panel(self):
         expected = (
-            "Target: Player Jolteon.",
-            "Target: Opponent Wurmple.",
-            "Target: Opponent Wingull.",
+            "Target: Player Jolteon, level 25, 44 of 46 HP, 96 percent.",
+            "Target: Opponent Wurmple, level 20, 27 of 27 HP, 100 percent.",
+            "Target: Opponent Wingull, level 14, 26 of 26 HP, 100 percent, "
+            "paralyzed.",
         )
         for cursor, speech in enumerate(expected):
             with self.subTest(cursor=cursor):
@@ -455,7 +500,8 @@ class StoryTargetTests(unittest.TestCase):
         self._target_screen(f, 1, opponent_top="SPOINK")
         f.reader.poll_once()
         self.assertEqual(
-            f.events.values[-1][1], "Target: Opponent Spoink."
+            f.events.values[-1][1],
+            "Target: Opponent Spoink, level 20, 27 of 27 HP, 100 percent."
         )
 
     def test_selected_item_flag_overrides_disagreeing_cursor_fields(self):
@@ -472,7 +518,9 @@ class StoryTargetTests(unittest.TestCase):
             )
         f.reader.poll_once()
         self.assertEqual(
-            f.events.values[-1][1], "Target: Opponent Wingull."
+            f.events.values[-1][1],
+            "Target: Opponent Wingull, level 14, 26 of 26 HP, 100 percent, "
+            "paralyzed."
         )
     def test_ambiguous_actor_panel_is_silent(self):
         f = Fixture(); self._target_screen(f, 3)
@@ -494,10 +542,38 @@ class MoveTests(unittest.TestCase):
             self.assertEqual(f.events.values[-1][1], text)
 
     def test_name_disagreement_is_suppressed(self):
+        """The move is never announced when the two readings disagree.
+
+        Unchanged guarantee, and the important one: speaking the local
+        name would mean saying "MEGA PUNCH" for Zen Headbutt. What is new
+        is that the reader now also says, once, WHY it went quiet -- see
+        test_game_data_mismatch.py. So the assertion is that no MENU_FOCUS
+        was emitted, not that nothing at all was."""
         f = Fixture()
         f.move(names=("WRONG", "DRAGON DANCE", "BRICK BREAK", "DRAGON CLAW"))
         f.reader.poll_once()
-        self.assertEqual(f.events.values, [])
+        focus = [
+            event for event in f.events.values
+            if event[0] is SpeechEventClass.MENU_FOCUS
+        ]
+        self.assertEqual(focus, [])
+        self.assertEqual(
+            [event[0] for event in f.events.values],
+            [SpeechEventClass.WARNING])
+
+    def test_shadow_menu_name_resolves_its_displayed_move_id(self):
+        """The embedded ordinary ID must not hide a live Shadow override."""
+        f = Fixture()
+        f.reader.move_data.names[356] = "SHADOW STEALTH"
+        f.move(names=(
+            "SHADOW STEALTH", "DRAGON DANCE", "BRICK BREAK", "DRAGON CLAW"
+        ))
+        f.reader.poll_once()
+        self.assertEqual(
+            f.events.values[-1][1],
+            "Shadow Stealth, 10/10 P P. Shadow-type status move, "
+            "100 percent accuracy.",
+        )
 
     def test_empty_record_is_never_spoken(self):
         f = Fixture()
@@ -1038,7 +1114,7 @@ class TitleMenuTests(unittest.TestCase):
         self.assertEqual(len(f.events.values), 1)
         self.assertEqual(
             f.events.values[0][1],
-            "Pokemon XD: Gale of Darkness; Press Start.",
+            "Pokemon XD: Gale of Darkness. Press A to start.",
         )
 
     def test_press_start_reannounces_after_screen_transition(self):
@@ -1052,7 +1128,9 @@ class TitleMenuTests(unittest.TestCase):
         f.backend.put(f.profile.title_start_status_address, be32(1))
         f.reader.poll_once()
         self.assertEqual(len(f.events.values), 2)
-        self.assertTrue(all("Press Start" in value[1] for value in f.events.values))
+        self.assertTrue(all(
+            "Press A to start" in value[1] for value in f.events.values
+        ))
 
     def test_active_unknown_title_message_suppresses_press_start(self):
         f = Fixture()
@@ -1227,10 +1305,12 @@ class NameEntryMenuTests(unittest.TestCase):
         f = Fixture()
         expected = []
         for column, row, label in (
-            (0, 0, "A"), (1, 0, "B"),
+            (0, 0, "A"), (1, 0, "B"), (4, 0, "E"),
+            (5, 0, "Space"), (6, 0, "F"), (7, 0, "G"),
+            (10, 0, "J"),
             (0, 1, "K"), (1, 1, "L"), (2, 1, "M"), (3, 1, "N"),
-            (4, 1, "O"), (5, 1, "P"), (7, 1, "Q"), (8, 1, "R"),
-            (10, 1, "S"), (11, 1, "T"),
+            (4, 1, "O"), (5, 1, "Space"), (6, 1, "P"),
+            (7, 1, "Q"), (8, 1, "R"), (9, 1, "S"), (10, 1, "T"),
             (5, 2, "Z"), (6, 2, "Space"),
             (5, 3, "Exclamation mark"), (7, 3, "Male symbol"),
             (8, 6, "Back"), (8, 7, "Done"),
@@ -1242,12 +1322,45 @@ class NameEntryMenuTests(unittest.TestCase):
             [value[1] for value in f.events.values], expected
         )
 
-    def test_keyboard_second_row_gaps_do_not_invent_letters(self):
+    def test_footleg_coordinates_do_not_insert_the_first_row_gap(self):
+        """Live defect: the old contiguous A-J map announced column 5 as F
+        and column 6 as G, while the game inserted Space and F.  Pin the
+        actual hover labels used to enter FOOTLEG."""
         f = Fixture()
-        for column in (6, 9):
+        for column, row in (
+            (6, 0),             # F
+            (4, 1), (4, 1),    # OO
+            (10, 1),            # T
+            (1, 1),             # L
+            (4, 0),             # E
+            (7, 0),             # G
+        ):
+            self.keyboard(f, column, row)
+            f.reader.poll_once()
+        self.assertEqual(
+            [value[1] for value in f.events.values],
+            ["F", "O", "T", "L", "E", "G"],
+        )
+
+    def test_keyboard_second_row_has_no_silent_letter_gaps(self):
+        f = Fixture()
+        for column in (5, 6, 7, 8, 9, 10):
             self.keyboard(f, column, 1)
             f.reader.poll_once()
-        self.assertEqual(f.events.values, [])
+        self.assertEqual(
+            [value[1] for value in f.events.values],
+            ["Space", "P", "Q", "R", "S", "T"],
+        )
+
+    def test_sparse_s_and_t_do_not_collide_with_u_and_v(self):
+        f = Fixture()
+        for column, row in ((9, 1), (0, 2), (10, 1), (1, 2)):
+            self.keyboard(f, column, row)
+            f.reader.poll_once()
+        self.assertEqual(
+            [value[1] for value in f.events.values],
+            ["S", "U", "T", "V"],
+        )
 
     def test_keyboard_reannounces_when_entered_name_changes(self):
         f = Fixture()
@@ -1261,6 +1374,24 @@ class NameEntryMenuTests(unittest.TestCase):
         self.assertEqual(
             [value[1] for value in f.events.values],
             ["A", "Name: A"],
+        )
+
+    def test_name_rater_reports_characters_after_player_name_limit(self):
+        f = Fixture()
+        self.keyboard(f, 6, 1)
+        f.backend.put(
+            f.profile.name_input_address,
+            "ABCDEFG\0".encode("utf-16-be"),
+        )
+        f.reader.poll_once()
+        f.backend.put(
+            f.profile.name_input_address,
+            "ABCDEFGP\0".encode("utf-16-be"),
+        )
+        f.reader.poll_once()
+        self.assertEqual(
+            [value[1] for value in f.events.values],
+            ["P", "Name: ABCDEFGP"],
         )
 
     def yes_no_overlay(self, f, message_id, cursor, parent_id=None):
@@ -1324,7 +1455,19 @@ class NameEntryMenuTests(unittest.TestCase):
         # already-covered save (51) and dialogue (82) confirmations.
         f = Fixture()
         f.reader.title_messages = {17134: "Is it okay to continue from here?"}
-        self.yes_no_overlay(f, 17134, 1, parent_id=52)
+        prompt = f.work + 0x100
+        choices = f.work + 0x200
+        f.head(f.work)
+        f.node(f.work, f.profile.continue_summary_menu_id,
+               next_pointer=prompt)
+        f.node(prompt, 52, next_pointer=choices)
+        f.node(choices, 53, cursor=1)
+        manager = 0x80008000
+        tasks = 0x80008100
+        f.backend.put(f.profile.manager_root, be32(manager))
+        f.backend.put(manager + f.profile.manager_tasks_offset, be32(tasks))
+        f.backend.put(tasks + f.profile.task_state_offset, bytes([2]))
+        f.backend.put(tasks + f.profile.task_id_offset, be32(17134))
         f.reader.poll_once()
         self.assertEqual(
             f.events.values[-1][1],
@@ -1485,6 +1628,74 @@ class NameEntryMenuTests(unittest.TestCase):
         f.reader.title_messages = {15417: "Save the game?"}
         f.reader.poll_once()
         self.assertEqual(f.events.values[-1][1], "Yes")
+
+    def test_global_save_prompt_is_not_hidden_by_dialogue_parent(self):
+        f = Fixture()
+        choices = f.work + 0x100
+        f.head(f.work)
+        f.node(f.work, f.profile.dialogue_window_id, next_pointer=choices)
+        f.node(choices, 53, cursor=0)
+        manager = 0x80008000
+        tasks = 0x80008100
+        f.backend.put(f.profile.manager_root, be32(manager))
+        f.backend.put(manager + f.profile.manager_tasks_offset, be32(tasks))
+        f.backend.put(tasks + f.profile.task_state_offset, bytes([2]))
+        f.backend.put(tasks + f.profile.task_id_offset, be32(15346))
+        f.reader.title_messages = {
+            15346: "[Change Font]Would you like to save your progress?"
+        }
+        f.reader.poll_once()
+        self.assertEqual(
+            f.events.values[-1][1],
+            "Would you like to save your progress? Yes",
+        )
+
+    def test_global_saved_notice_is_spoken_outside_title_screen(self):
+        f = Fixture()
+        f.head(0)
+        manager = 0x80008000
+        tasks = 0x80008100
+        f.backend.put(f.profile.manager_root, be32(manager))
+        f.backend.put(manager + f.profile.manager_tasks_offset, be32(tasks))
+        f.backend.put(tasks + f.profile.task_state_offset, bytes([2]))
+        f.backend.put(tasks + f.profile.task_id_offset, be32(145))
+        f.reader.title_messages = {
+            145: "[Change Font]Your progress has been saved![Dialogue End]"
+        }
+        f.backend.put(f.profile.title_status_address, be32(0))
+        f.reader.poll_once()
+        self.assertEqual(
+            f.events.values[-1][1], "Your progress has been saved!"
+        )
+
+    def test_yes_no_accepts_unseen_parent_and_renders_runtime_prompt(self):
+        f = Fixture()
+        choices = f.work + 0x100
+        f.head(f.work)
+        # 83 is a caller observed in the move-learning flow.  The reader
+        # must classify the reusable child widget, not enumerate callers.
+        f.node(f.work, 83, next_pointer=choices)
+        f.node(choices, f.profile.new_game_confirmation_menu_id, cursor=0)
+        manager = 0x80008000
+        tasks = 0x80008100
+        f.backend.put(f.profile.manager_root, be32(manager))
+        f.backend.put(manager + f.profile.manager_tasks_offset, be32(tasks))
+        f.backend.put(tasks + f.profile.task_state_offset, bytes([2]))
+        f.backend.put(tasks + f.profile.task_id_offset, be32(20012))
+
+        class Renderer:
+            def text(self, message_id):
+                return (
+                    "Stop learning Baby Doll Eyes?"
+                    if message_id == 20012 else None
+                )
+
+        f.reader.message_renderer = Renderer()
+        f.reader.poll_once()
+        self.assertEqual(
+            f.events.values[-1][1],
+            "Stop learning Baby Doll Eyes? Yes",
+        )
 
 
 class ShopMenuTests(unittest.TestCase):
@@ -1858,6 +2069,34 @@ class ProgressNotificationTests(unittest.TestCase):
             f.events.values[-1][1],
             "FARQUAD came back from the DAY-CARE!",
         )
+
+    def test_held_item_and_tm_information_windows_are_spoken(self):
+        messages = {
+            15051: "The Potion was taken and replaced with the Berry.",
+            15052: "SPARKY was given the Potion to hold.",
+            15053: "Received the Potion from SPARKY.",
+            15054: "SPARKY isn't holding anything.",
+            15055: "You have no room for it.",
+            15056: "SPARKY is in Hyper Mode! It won't accept an item!",
+            50037: "Booted up a TM.",
+            50038: "Booted up an HM.",
+            50039: "It contained Bite. Would you like to teach Bite to a Pokemon?",
+        }
+
+        class Renderer:
+            def text(self, message_id):
+                return messages.get(message_id)
+
+        for message_id, expected in messages.items():
+            with self.subTest(message_id=message_id):
+                f = self.fixture(50201)
+                f.reader.message_renderer = Renderer()
+                f.backend.put(
+                    self.TASKS + f.profile.task_id_offset,
+                    be32(message_id),
+                )
+                f.reader.poll_once()
+                self.assertEqual(f.events.values[-1][1], expected)
 
     def test_unloaded_message_is_silent_rather_than_invented(self):
         # 50503 is in this reader's ID set but lives in the Relic Stone

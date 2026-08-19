@@ -29,14 +29,24 @@ def fail(message):
 
 
 def main():
-    if not SETTINGS.is_file():
+    settings = (
+        json.loads(SETTINGS.read_text(encoding="utf-8"))
+        if SETTINGS.is_file() else {}
+    )
+    # The presence of the FILE is no longer proof that Setup has run: the
+    # in-game settings menu writes the player's own preferences into the
+    # same file, under its own key, and can create it first. The paths
+    # Setup records are what this actually needs, so they are what is
+    # checked -- otherwise a player who adjusted the volume before running
+    # Setup would get "Dolphin is no longer at ." instead of being told to
+    # run Setup.
+    if not settings.get("dolphin_exe") or not settings.get("game_image"):
         return fail(
             "No settings found. Run Setup.cmd first -- it asks where "
             "Dolphin and your game image are, and reads the game data "
             "the companion needs.")
-    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    dolphin = Path(settings.get("dolphin_exe", ""))
-    game = Path(settings.get("game_image", ""))
+    dolphin = Path(settings["dolphin_exe"])
+    game = Path(settings["game_image"])
 
     # Checked before anything starts, so a moved file is one clear
     # message rather than a silent narrator plus a Dolphin error box.

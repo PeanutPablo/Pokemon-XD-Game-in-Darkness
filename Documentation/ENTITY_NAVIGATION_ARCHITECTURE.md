@@ -390,24 +390,43 @@ together.
 | Current reader | `gateon_bridge.GateonBridgeReader` — a passive announcer only |
 | Confidence | flag/script ownership High; positions Low; live enable state Unverified |
 
-> **Corrected and superseded 2026-08-09.** A `bridge` entity-navigation
-> category shipped the same day; see
-> [GATEON_BRIDGE_ACCESSIBILITY.md](GATEON_BRIDGE_ACCESSIBILITY.md). The
-> table below is right, but the sentence "they are the bridge's *blocking*
-> geometry" is **wrong**: entries 23–31 are the bridge **segments**, and
-> **`enable == 1` means that direction is CONNECTED.** Settled against two
-> independent sources — the script's own table and the `ALIGNMENTS` prose
-> written from the real game — which agree **12/12** under that reading and
-> **0/12** under the other. Positions, deck names and compass directions
-> are all derived from `M6_out.ccd`; the state table is parsed from the
-> room script; `_RAW_PAD_TRANSITIONS` is no longer used for connections.
+> **2026-08-09: a `bridge` entity-navigation category shipped**; see
+> [GATEON_BRIDGE_ACCESSIBILITY.md](GATEON_BRIDGE_ACCESSIBILITY.md).
+> Positions, deck names and compass directions are all derived from
+> `M6_out.ccd`; the state table is parsed from the room script;
+> `_RAW_PAD_TRANSITIONS` is no longer used for connections.
+>
+> **2026-08-18: the polarity that shipped with it was backwards, and this
+> section's ORIGINAL wording was right.** From 2026-08-09 to 2026-08-18 a
+> correction block here claimed entries 23–31 were the bridge *segments*
+> and that `enable == 1` meant CONNECTED. It does not. **`enable == 1`
+> means that direction is BLOCKED**, exactly as the struck-through
+> sentence below said, so for nine days the category listed precisely the
+> directions the player could *not* cross — reported by the project owner
+> after walking into them.
+>
+> The 12/12 agreement that persuaded the earlier pass was circular: the
+> `ALIGNMENTS` prose in `gateon_bridge.py` is a field-for-field
+> restatement of the same enable bits (state 0's "north and west" is
+> exactly `{24, 27}`; "centre open" is exactly `26 == 1`), so it agrees
+> with whichever reading produced it and can decide nothing.
+>
+> What settles it is in this very section, and was already written down
+> when the wrong conclusion was drawn: **entries 23–31 have no walk
+> model**, and **`pier_def` never toggles 58 or 59 — only the blockers
+> move.** Seven of the nine are single collapsed planes with no footprint
+> to stand on, and `GScolsys2SetObjEnable(1, …)` switches a collision
+> blocker *on*. The corrected reading is also the only one under which the
+> two piers can ever be crossed between: that route passes three gates in
+> a line (25, 26, 29), and under `1 == connected` no alignment ever opened
+> all three.
 
 Established offline this pass, from `M6_out.ccd` (63 entries) and
 `rooms/M6_out.txt`:
 
 - Entries **23–31** carry pointers only at slot `+0x28` (the hit
-  model) and `+0x34`. **They have no walk model.** ~~They are the bridge's
-  *blocking* geometry.~~ (See the correction above.)
+  model) and `+0x34`. **They have no walk model. They are the bridge's
+  *blocking* geometry** — the fact that decides the polarity above.
 - Entries **44–62** carry pointers only at slot `+0x24` (the walk model).
   Entries 58 and 59 — which `gateon_bridge.py` names as the southern and
   northern decks — are in this group, consistent with
@@ -674,3 +693,83 @@ character path, all from that branch:
 The box approach angle's argument order is not established, so the source
 reports it UNKNOWN and downgrades the wording to "In range" rather than
 promising a press will land.
+
+---
+
+## Region-backed navigation: areas, not centroids (2026-08-12)
+
+**Every region-backed destination now routes to its interaction REGION, and
+`VERIFIED` means an ordinary walkable route reaches that region.**
+
+### What an interaction region is
+
+A region is an AREA -- a trigger volume the player walks into -- held as its
+own triangles by `region_geometry.Region`. Its centroid survives only as a
+stable anchor for ordering and diagnostics. It is not, and must not become
+again, the authoritative destination: measured over all 843 regions in 177
+rooms, 210 have a centroid lying OUTSIDE their own geometry, worst case
+168.9 units of empty space (`D3_out` index 1; `D1_out` index 2 is 161.9).
+
+**Corrected 2026-08-12:** those two worst cases are NOT disjoint volumes, as
+first assumed. Measured, both are a single connected region -- a long
+concave strip -- whose centroid falls in the empty middle. Genuine
+multi-volume regions do exist and were measured separately: **126 of 843
+(14.9%)** have more than one component (124 with two, 2 with four, worst
+`M1_pc_1F` index 3 and `D1_out` index 1). Their centroids sit much closer to
+their geometry (0.7-15.1 units), so the two defects are independent:
+concavity produces the extreme centroid errors, fragmentation produces the
+"which volume am I being sent to" problem.
+
+Spoken direction and distance already use `Region.nearest_point` relative to
+the player (Phase 3b, 2026-08-10). Routing now uses the same geometry.
+
+### Sources carrying their region
+
+All five region-backed sources in `authoritative_warps.py` publish
+`metadata["region"]`, which `AudioGuideReader` passes to
+`NavigationService` and on to `pathfinding.flow_field_toward`:
+
+| source | category |
+|---|---|
+| `AuthoritativeWarpEntitySource` | warp / exit |
+| `AuthoritativeDoorEntitySource` | door |
+| `AuthoritativeElevatorEntitySource` | elevator |
+| `AuthoritativePCEntitySource` | PC |
+| `AuthoritativeTextEntitySource` | sign |
+
+True point-backed entities (NPCs) are deliberately unchanged; they route
+against the real arrival radius instead.
+`tests/test_authoritative_warps.py::RegionCarriedEndToEndTests` fails if a
+source stops carrying its region, because a source that omits it silently
+downgrades to the point path and nothing else would notice.
+
+### Acceptance is connectivity, not distance
+
+`pathfinding.destination_target_tiles` derives ARRIVAL TILES from the
+region's triangles (or the arrival radius for a point). A route is accepted
+only when an ordinary walkable path -- same walk layers, wall tests,
+collision radius, corner rules, floor support -- reaches one of them, and
+the field is then re-seeded there so the route is continuous into the
+region. `REACHABILITY_FALLBACK_MAX_OFFSET` and every distance-based
+acceptance rule are **retired**.
+
+Why: measured over all 3230 interaction-point pairs, the old 64-unit rule
+accepted 2024 routes of which only 265 were locally useful. Above the real
+4-unit arrival radius, distance carries no signal at all -- the hit rate is
+5-11% in every band, and 74.4% of reseeds landing within 8 units of their
+destination were still on the far side of a wall.
+
+### Coverage is intentionally lower
+
+Routed coverage fell from 69.3% to roughly 43% of interaction pairs. That
+drop is the false routing being removed, not capability being lost. The
+invariant that matters is zero known false `VERIFIED` routes.
+
+### Known outcomes worth remembering
+
+- `M3_cave_1F_1` (Relic Stone cave) refuses toward the shrine exit with
+  `cause=disconnected`; the pair that genuinely connects still routes.
+- `D1_garage_1F`'s basement warps refuse: no walk surface exists beneath
+  either region anywhere in that room. They are the stairs to another
+  floor, and the old rule "worked" by guiding 70 units to the south wall.
+- Cross-level destinations remain diagnosed, not solved.

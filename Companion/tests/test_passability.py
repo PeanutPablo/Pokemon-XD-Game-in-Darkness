@@ -13,8 +13,10 @@ The regression bar that replaces "rich rooms are untouched by construction"
 is stronger and is asserted below: `M3_out`'s live-proven terrace route must
 still build and link WITH the swept test applied to it.
 """
+import math
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from battle_narrator import pathfinding as pf
 from battle_narrator.collision_probe import (
@@ -340,23 +342,85 @@ class DestinationProjectionTests(unittest.TestCase):
                 geometry, Position(50.0, -gap + 0.5, 130.0)),
             "refused a destination within the same level's height band")
 
-    def test_the_cross_level_case_guides_to_the_nearest_reachable_point(self):
-        """Refusing to project must not mean refusing to help. With no seed
-        available, `flow_field_toward` falls through to the reachability
-        search and guides the player to the reachable point closest to the
-        stairwell -- which is what a sighted player walks toward too."""
+    def test_a_cross_level_target_off_this_room_s_floor_is_refused(self):
+        """**Inverted 2026-08-12.** This used to require guidance to the
+        reachable point nearest a stairwell 45 units below the floor, on the
+        grounds that it is "what a sighted player walks toward".
+
+        Measured across every interaction pair in the game, that rule
+        accepted 2024 routes of which only 265 were locally useful. A
+        destination with no walkable floor beneath it anywhere in this room
+        cannot be reached in this room, and saying otherwise is the
+        false-routing defect. The guide now refuses and hands to the beacon.
+
+        The destination here sits 45 units below a floor that does not
+        extend under it, so no arrival tile exists -- see
+        `pathfinding.destination_target_tiles`."""
         from battle_narrator.pathfinding import flow_field_toward
         geometry = build_room_geometry(
             walk_quad(0.0, 100.0, 0.0, 100.0), (), floor_id=1)
         player = Position(50.0, 0.0, 20.0)
         field = flow_field_toward(
             geometry, Position(50.0, -45.0, 130.0), player)
+        # **Revised 2026-08-13.** Refusing outright took away guidance the
+        # player was relying on. What must never happen is claiming to have
+        # ARRIVED; being walked to the closest reachable ground, told how far
+        # short it stops, is useful and honest.
         self.assertIsNotNone(field, "no guidance at all for a cross-level target")
-        self.assertTrue(field.stats.get("reseeded_for_reachability"))
-        seed = resolve_node(geometry, player)
-        self.assertIn(
-            (seed[0], seed[1]), field.node_height,
-            "the player is not linked to the guidance field")
+        self.assertTrue(
+            (field.stats or {}).get("partial_guidance"),
+            "a destination with no floor under it was routed to as if it "
+            "were reachable")
+
+    def test_partial_guidance_never_chooses_a_floor_above_the_target(self):
+        """Relic cave regression: X/Z proximity must not beat elevation.
+
+        The player stands on a disconnected upper floor directly over the
+        lower destination. The old partial fallback selected that upper
+        floor and announced arrival despite a 120-unit vertical error.
+        """
+        geometry = build_room_geometry(
+            walk_quad(0, 100, 0, 100, y=120.0, layer=3)
+            + walk_quad(0, 20, 0, 20, y=0.0, layer=0),
+            (), floor_id=1,
+        )
+        field = flow_field_toward(
+            geometry, Position(10.0, 0.0, 10.0),
+            Position(80.0, 120.0, 80.0),
+        )
+        self.assertIsNone(
+            field,
+            "partial guidance routed to the upper floor above the target",
+        )
+
+    def test_partial_guidance_obeys_a_region_band_at_an_upper_only_edge(self):
+        """The live exit anchor can sit just beyond the lower cave floor.
+
+        Its raw X/Z column therefore contains only the clifftop, while the
+        wider trigger region establishes that the exit belongs downstairs.
+        The partial fallback must retain that region evidence.
+        """
+        geometry = build_room_geometry(
+            walk_quad(0, 100, 0, 100, y=120.0, layer=3)
+            + walk_quad(0, 20, 0, 20, y=0.0, layer=0),
+            (), floor_id=1,
+        )
+        lower_region = SimpleNamespace(triangles=(
+            # A tall vertical curtain like M3_out's exit. Its broad region
+            # band includes y=40 after tolerance, but its resolved floor is
+            # y=0 and partial routing must stay with that floor.
+            ((10.0, -10.0, 10.0), (80.0, -10.0, 10.0),
+             (10.0, 36.0, 10.0)),
+        ))
+        field = flow_field_toward(
+            geometry, Position(10.0, -10.0, 10.0),
+            Position(80.0, 120.0, 80.0),
+            destination_region=lower_region,
+        )
+        self.assertIsNone(
+            field,
+            "partial guidance discarded the exit region's lower-floor band",
+        )
 
     def test_an_unseedable_destination_outside_the_room_gets_no_route(self):
         """The bound on the above. Guiding toward the reachable point
@@ -510,6 +574,184 @@ class NodeRelocationTests(unittest.TestCase):
             "room, which is the state that made the swept test look unusable")
 
 
+class RelicStoneCaveRegressionTests(unittest.TestCase):
+    """Live report 2026-08-12: "something is wrong with the relic stone cave
+    navigation".
+
+    `M3_cave_1F_1`'s walk model is a single flat quad, so all of its
+    structure lives in 198 wall triangles, and its passage genuinely splits
+    into pockets the flood cannot join. Asking for a route from the cave
+    entrance to the shrine exit produced a confident `VERIFIED` 14-hop route
+    whose final waypoint sat **180.4 units** from the exit, because
+    `flow_field_toward`'s reachability fallback settled for the nearest
+    reachable tile with no ceiling on how far "nearest" could be. Nothing was
+    spoken to say the route did not reach the target: the player walks the
+    cave and arrives nowhere near the way out.
+
+    Positions are the room's own interactable region centres."""
+
+    ENTRANCE = Position(62.1, 0.0, -134.8)
+    SHRINE_EXIT = Position(-18.8, 0.0, 150.0)
+    SAME_POCKET = Position(26.5, 0.0, -26.0)
+
+    @classmethod
+    def setUpClass(cls):
+        ccd = COLLISION / "M3_cave_1F_1.ccd"
+        if not ccd.is_file():
+            raise unittest.SkipTest(f"missing fixture {ccd}")
+        data = ccd.read_bytes()
+        cls.geometry = build_room_geometry(
+            parse_walk_model_triangles(data),
+            parse_environment_triangles(data))
+
+    def test_an_unreachable_exit_yields_no_route_rather_than_a_wrong_one(self):
+        field = flow_field_toward(
+            self.geometry, self.SHRINE_EXIT, self.ENTRANCE)
+        self.assertTrue(
+            field is None or (field.stats or {}).get("partial_guidance"),
+            "the guide presented a route to a destination it cannot reach "
+            "as if it arrived -- it will walk the player confidently to the "
+            "wrong place")
+
+    def test_the_failure_names_itself(self):
+        cause, sentence = diagnose_unreachable(
+            self.geometry, self.ENTRANCE, self.SHRINE_EXIT)
+        self.assertEqual(
+            cause, "disconnected",
+            f"reported '{cause}' instead of naming the real problem: {sentence}")
+
+    def test_a_destination_in_the_same_pocket_still_routes(self):
+        """The refusal must be specific to unreachable targets. Guidance
+        inside the reachable part of the cave has to keep working, or the
+        fix has simply turned the cave off."""
+        field = flow_field_toward(
+            self.geometry, self.SAME_POCKET, self.ENTRANCE)
+        self.assertIsNotNone(field)
+        end = field.node_position(field.destination_node)
+        self.assertLess(
+            ((end.x - self.SAME_POCKET.x) ** 2
+             + (end.z - self.SAME_POCKET.z) ** 2) ** 0.5, 8.0,
+            "the route ended far from a destination that is reachable")
+
+
+class ReachabilityFallbackBoundTests(unittest.TestCase):
+    """The bound that separates "guide to the nearest reachable point" from
+    "walk the player somewhere else and call it success".
+
+    Each case below is one of the outcomes the 2026-08-12 split audit had to
+    tell apart, pinned so the classification cannot drift."""
+
+    def _room(self, name):
+        ccd = COLLISION / f"{name}.ccd"
+        if not ccd.is_file():
+            self.skipTest(f"missing fixture {ccd}")
+        data = ccd.read_bytes()
+        return build_room_geometry(
+            parse_walk_model_triangles(data), parse_environment_triangles(data))
+
+    def test_cave_old_false_route_versus_new_refusal(self):
+        """The headline case, asserted from both sides: the old rule DID
+        produce a route, and it ended nowhere near the destination."""
+        geometry = self._room("M3_cave_1F_1")
+        entrance = Position(62.1, 0.0, -134.8)
+        shrine = Position(-18.8, 0.0, 150.0)
+
+        # Old behaviour, reproduced here only: nearest reachable node to the
+        # RAW destination, no ceiling.
+        reachable = flow_field_from(geometry, entrance)
+        self.assertIsNotNone(reachable)
+        best = min(
+            (math.dist(pf.node_point(geometry, node[0], None, height),
+                       (shrine.x, shrine.z)), node)
+            for node, height in reachable.node_height.items())
+        self.assertGreater(
+            best[0], 128.0,
+            "the old rule's terminal point should be far from the shrine -- "
+            "this fixture no longer reproduces the reported failure")
+
+        # Current behaviour still guides -- the player was relying on being
+        # taken to the cave's doorstep -- but never as a route that arrives.
+        field = flow_field_toward(geometry, shrine, entrance)
+        self.assertTrue(
+            field is None or (field.stats or {}).get("partial_guidance"),
+            f"a route ending {best[0]:.0f} units from the destination was "
+            f"presented as if it arrived")
+
+    def test_the_garage_basement_warp_is_refused_after_investigation(self):
+        """**Inverted 2026-08-12.** This required the basement stairwell to
+        keep routing, on the reasoning that its distance is mostly vertical.
+
+        Investigated rather than exempted, as the brief required: this room's
+        walk model has no surface beneath either basement region, and no
+        reachable node shares a tile with them. They are the stairs to
+        another floor. The old rule "worked" by guiding 70 units to a spot by
+        the south wall and reporting VERIFIED. Refusing is the correct
+        model of a cross-level destination."""
+        geometry = self._room("D1_garage_1F")
+        player = Position(77.57, 0.0, -48.76)
+        field = flow_field_toward(
+            geometry, Position(72.99, -48.24, -119.07), player)
+        self.assertTrue(
+            field is None or (field.stats or {}).get("partial_guidance"),
+            "the basement warp was routed to as if it were reachable")
+        cause, sentence = diagnose_unreachable(
+            geometry, player, Position(72.99, -48.24, -119.07))
+        self.assertNotEqual(cause, "unknown", sentence)
+
+    def test_an_ordinary_reachable_destination_is_untouched(self):
+        geometry = self._room("D1_garage_1F")
+        field = flow_field_toward(
+            geometry, Position(20.0, 0.0, -20.0), Position(77.57, 0.0, -48.76))
+        self.assertIsNotNone(field)
+        self.assertFalse(
+            (field.stats or {}).get("reseeded_for_reachability", False),
+            "an ordinary in-room destination should not need the fallback")
+
+    def test_a_structurally_disconnected_destination_is_named(self):
+        geometry = self._room("M3_cave_1F_1")
+        cause, sentence = diagnose_unreachable(
+            geometry, Position(62.1, 0.0, -134.8),
+            Position(-18.8, 0.0, 150.0))
+        self.assertEqual(cause, "disconnected", sentence)
+        self.assertIn("separate pockets", sentence)
+
+    def test_a_destination_below_the_floor_still_projects(self):
+        """Vertical separation must not by itself trip the bound: the
+        garage warp is 48 units down and still earns guidance."""
+        geometry = self._room("D1_garage_1F")
+        target = Position(72.99, -48.24, -119.07)
+        self.assertIsNone(
+            resolve_node(geometry, target),
+            "fixture no longer sits off the walkable surface")
+        self.assertIsNotNone(
+            pf.resolve_destination_node(geometry, target,
+                                        max_vertical_gap=math.inf),
+            "the destination should still project with the guard lifted")
+
+    def test_acceptance_is_connectivity_not_distance(self):
+        """**Replaced the projected-floor bound test, 2026-08-12.**
+
+        There is no distance ceiling left to pin. What must hold is that
+        acceptance follows local connectivity into the destination's arrival
+        tiles: the garage's in-room region routes, and its basement warp --
+        which no reachable node touches -- does not, regardless of how the
+        two compare on distance."""
+        garage = self._room("D1_garage_1F")
+        player = Position(77.57, 0.0, -48.76)
+        unreachable = flow_field_toward(
+            garage, Position(72.99, -48.24, -119.07), player)
+        self.assertTrue(
+            unreachable is None
+            or (unreachable.stats or {}).get("partial_guidance"),
+            "an unreachable destination was routed to as if reachable")
+        self.assertIsNotNone(
+            flow_field_toward(garage, Position(20.0, 0.0, -20.0), player),
+            "an ordinary reachable destination stopped routing")
+        self.assertFalse(
+            hasattr(pf, "REACHABILITY_FALLBACK_MAX_OFFSET"),
+            "the distance ceiling is still present")
+
+
 class RealGarageRegressionTests(unittest.TestCase):
     """The live failure of 2026-08-04 12:40:52, as an automated regression.
 
@@ -572,22 +814,31 @@ class RealGarageRegressionTests(unittest.TestCase):
         seed = resolve_node(self.geometry, self.PLAYER)
         self.assertIn((seed[0], seed[1]), field.node_height)
 
-    def test_the_failing_live_case_now_produces_real_guidance(self):
+    def test_the_basement_warp_is_refused_because_it_has_no_floor_here(self):
+        """**Inverted 2026-08-12, after investigating rather than exempting.**
+
+        This used to require guidance to the basement warp. It was only ever
+        satisfied by the permissive fallback, which guided 70 units to a spot
+        by the south wall and called it VERIFIED.
+
+        Measured: this room's walk model has NO surface beneath either
+        basement region (`walk_height_candidates` at both region centres is
+        empty), and no reachable node shares a tile with either. They are
+        cross-level destinations -- the stairs down -- and this room's graph
+        genuinely cannot reach them. Refusing is correct."""
         field = pf.flow_field_toward(
             self.geometry, self.BASEMENT_WARP, self.PLAYER)
-        self.assertIsNotNone(field, "no guidance at all")
         self.assertTrue(
-            field.stats.get("reseeded_for_reachability"),
-            "the reachability fallback did not fire for a cross-level target")
-        seed = resolve_node(self.geometry, self.PLAYER)
-        self.assertIn(
-            (seed[0], seed[1]), field.node_height,
-            "the player is not linked to the guidance field")
-        # The live failure produced a six-node pocket. Anything in that
-        # range is the bug, not a route.
-        self.assertGreater(
-            len(field.node_height), 100,
-            f"only {len(field.node_height)} nodes -- this is the pocket again")
+            field is None or (field.stats or {}).get("partial_guidance"),
+            "the basement warp was presented as a reachable destination "
+            "despite having no walkable floor beneath it in this room")
+
+    def test_an_in_room_destination_still_routes(self):
+        """The refusal must be specific to the unreachable warps -- ordinary
+        guidance inside the garage has to keep working."""
+        field = pf.flow_field_toward(
+            self.geometry, Position(20.0, 0.0, -20.0), self.PLAYER)
+        self.assertIsNotNone(field, "ordinary in-room guidance was lost")
 
 
 class PlayerPositionAtActivationTests(unittest.TestCase):
@@ -609,12 +860,18 @@ class PlayerPositionAtActivationTests(unittest.TestCase):
         service._geometry_cache[1] = build_room_geometry(
             walk_quad(0.0, 200.0, 0.0, 200.0), (), floor_id=1)
         player = Position(20.0, 0.0, 20.0)
-        service.begin(1, Position(100.0, -45.0, 260.0), player)
+        # An in-room destination, so this tests what it says it tests: that
+        # `begin` uses the player position. It used to use a destination 45
+        # units below the floor and beyond its edge, which since 2026-08-12
+        # is refused outright -- that made this a test of the removed
+        # fallback rather than of activation-time seeding.
+        service.begin(1, Position(180.0, 0.0, 180.0), player)
         result = service.next_waypoint(player)
         self.assertTrue(
             result.path_available,
-            "an off-floor destination produced no route even though the "
+            "an ordinary destination produced no route even though the "
             "player position was available at activation")
+        self.assertEqual(service._last_player_position, player)
 
     def test_begin_without_a_player_position_still_works(self):
         """Backward compatible: the parameter is optional, and omitting it

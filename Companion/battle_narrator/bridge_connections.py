@@ -3,7 +3,8 @@
 What a blind player needs here is not "there is a bridge" but "which way
 can I cross, right now" -- the configuration changes under them, and there
 is no visual cue that it has. This publishes one entity per connection
-that is CURRENTLY open, and nothing for the ones that are not.
+that is CURRENTLY open AND actually leads somewhere, and nothing for the
+ones that do not.
 
 Everything is derived. Nothing in this module is a coordinate, a room
 list, or a direction typed in by hand:
@@ -15,27 +16,65 @@ list, or a direction typed in by hand:
       -> their own hit geometry         <- position and direction
       -> the two deck footprints        <- which pier, and the walk height
 
-Established 2026-08-09, and it corrects
-`ENTITY_NAVIGATION_ARCHITECTURE.md` §3.7, which called entries 23-31 the
-bridge's *blocking* geometry:
+**`enable == 1` means that direction is BLOCKED.**
 
-**`enable == 1` means that direction is CONNECTED, not blocked.**
+That polarity is the one thing here that could be catastrophically wrong
+-- getting it backwards points a blind player at a wall in every alignment
+-- and it was **wrong from 2026-08-09 until 2026-08-18**, when the project
+owner reported the category listing places the bridge was not connected to.
+`ENTITY_NAVIGATION_ARCHITECTURE.md` §3.7 had it right all along, calling
+entries 23-31 the bridge's *blocking* geometry; this module's original
+docstring "corrected" it, and the correction was the error.
 
-That polarity is the one thing here that could have been catastrophically
-wrong -- inverting it would send a blind player at a wall, every time --
-so it was settled against two independently-produced sources rather than
-assumed. `pier_def`'s table (the game's own script) and the `ALIGNMENTS`
-prose in `gateon_bridge.py` (written by whoever implemented that reader,
-from the actual game) agree **12 of 12** state/deck/passage fields under
-"1 == connected", and **0 of 12** under "1 == blocked".
-`test_bridge_connections.py` pins that comparison, so the prose now earns
-its keep as a regression oracle rather than as production data.
+Why the original evidence did not hold
+--------------------------------------
+It rested on `pier_def`'s table agreeing 12 of 12 with the `ALIGNMENTS`
+prose in the retired `gateon_bridge.py`. That agreement was **circular**.
+The prose is a field-for-field restatement of the enable bits -- state 0's
+"north and west" is exactly `{24, 27}`, state 1's "south and west" exactly
+`{25, 27}`, and "centre open" exactly `26 == 1` -- so it reproduces the bit
+pattern by construction and cannot discriminate the two readings. A second
+description of the same table is not a second observation.
 
-The geometry corroborates it independently: every deck segment's hit
-geometry stands exactly 4.9 units off its deck's edge, and the two long
-spans (east, north; 68.4 units) are the two directions with a real gap to
-cross, while the short plates (west, south; ~5 units) bridge a step. Those
-are bridge parts, not walls.
+What actually settles it
+------------------------
+Three independent facts from the room's own collision data, none of which
+depend on any prose:
+
+1. **None of entries 23-31 is walkable.** They contribute 0 triangles to
+   `M6_out`'s walk model and exist only in the environment (hit) model.
+   The walk surfaces here are the two decks (58, 59) and the ground mesh
+   (45). A thing you cannot stand on is not a connection.
+2. **Seven of the nine are flat gates** -- 2 triangles each, collapsed
+   onto a single plane (entry 27 spans x -271.6..-271.6; entry 30 spans
+   z -121.6..-121.6), plus the centre passage at 0.4 units deep. A plane
+   with no footprint is a barrier across the 20-unit-wide opening in that
+   side of the pier's railing, not a surface. The remaining two (23, 24)
+   are closed volumes, and are not walkable either.
+3. **The call is an ENABLE on a collision object.**
+   `GScolsys2SetObjEnable(1, obj)` switches a collision blocker ON. The
+   engine's own verb agrees with the geometry.
+
+The corrected reading is also the only one that makes the puzzle work. A
+crossing between the two piers has to pass three gates in a line at
+x = -240: the northern deck's south gate (z 78.4), the centre passage
+(z 10), and the southern deck's north gate (z -58.4). Under "1 ==
+connected" those three are never simultaneously open in any of the four
+alignments -- the piers could never be crossed between. Under "1 ==
+blocked" alignment 0 opens all three, and the other three alignments do
+not, which is a puzzle rather than an impossibility.
+
+Connections that lead nowhere are also withheld
+-----------------------------------------------
+Being open is necessary but not sufficient. A pier's INTERIOR-facing gate
+-- the one pointing at the other pier, derived here from the decks' own
+positions rather than named -- opens onto the centre passage and nothing
+else, so it is published only when the passage is open too. The passage
+itself is published only when at least one interior gate is open, since
+otherwise it cannot be reached from either deck. Alignments 2 and 3 each
+leave exactly one such dead-end gate open, and alignment 1 leaves the
+passage open with neither gate; before this they were all announced as
+somewhere to walk.
 """
 from dataclasses import dataclass
 import collections
@@ -51,6 +90,17 @@ BRIDGE_FLAG = 968
 """`pier_def` and `pier_move`'s own flag. Read live every query; this is
 the only number here that identifies anything, and it comes from the
 script both functions are parsed out of."""
+
+BLOCKED = 1
+OPEN = 0
+"""What `pier_def` writes for one collision object, and what it means.
+
+Named rather than compared as bare literals because this project got the
+polarity backwards once already; a reader of `entities()` should not have
+to remember which way round `== 1` reads. See the module docstring for the
+evidence. Anything that is NEITHER value -- an entry this alignment's row
+does not mention at all -- is treated as not-open, because a connection
+that cannot be shown to be open must not be offered."""
 
 SEGMENT_FUNCTION = "pier_def"
 ENABLE_CALL = "UnknownClass46::16"
@@ -187,6 +237,30 @@ class Segment:
         return f"{self.deck.name} bridge, {self.direction} connection"
 
 
+def interior_facing_entries(decks, segments):
+    """CCD entries for the gates that face the other pier.
+
+    Derived, not named: the direction from one deck's centre to the other's
+    is computed with the same rule `_direction` uses for a segment, so the
+    gate whose own direction matches it is the one pointing across the gap.
+    A layout that is not two decks yields nothing, and every gate is then
+    treated as leading outward -- the pre-existing behaviour, and the safe
+    one, since it withholds nothing."""
+    if len(decks) != 2:
+        return frozenset()
+    first, second = decks
+    inward = {
+        first.entry_index: _direction(second.centre, first.centre),
+        second.entry_index: _direction(first.centre, second.centre),
+    }
+    return frozenset(
+        segment.entry_index
+        for segment in segments
+        if segment.deck is not None
+        and segment.direction == inward.get(segment.deck.entry_index)
+    )
+
+
 def _direction(segment_centre, deck_centre):
     dx = segment_centre[0] - deck_centre[0]
     dz = segment_centre[1] - deck_centre[1]
@@ -281,11 +355,11 @@ def derive_layout(walk_triangles, hit_triangles, entries):
 class BridgeConnectionEntitySource:
     """Entity-nav source for the connections the pier currently offers.
 
-    Publishes ONLY connections the live alignment enables. A direction that
-    is not currently crossable produces nothing -- not an entity marked
-    closed -- because entity navigation is a list of places worth walking
-    to, and this is a category where being wrong walks a blind player off a
-    pier."""
+    Publishes ONLY connections that are open in the live alignment AND lead
+    somewhere. A direction that is not currently crossable produces nothing
+    -- not an entity marked closed -- because entity navigation is a list
+    of places worth walking to, and this is a category where being wrong
+    walks a blind player into a wall."""
 
     def __init__(self, memory, profile, flag_reader, pose_source, room_id,
                  decks, segments, logger=None):
@@ -300,9 +374,34 @@ class BridgeConnectionEntitySource:
         self.enable_table = {}
         self.alignment = None
         self.generation = 0
+        self.interior_entries = interior_facing_entries(self.decks, self.segments)
+        self.passage_entries = frozenset(
+            segment.entry_index for segment in self.segments
+            if segment.deck is None)
 
     def player_pose(self):
         return self.pose_source.player_pose()
+
+    def open_entries(self, row):
+        """CCD entries that are open AND reachable, for one alignment row.
+
+        Two rules, in order. An entry is open when its collision blocker is
+        switched off (see `BLOCKED`/`OPEN`). Then the gates that face the
+        other pier are dropped unless the centre passage between them is
+        open as well, and the passage is dropped unless at least one of
+        those gates is open -- either way it is a gate onto nothing, which
+        is exactly what this category must not announce."""
+        opened = {
+            segment.entry_index for segment in self.segments
+            if row.get(segment.entry_index) == OPEN
+        }
+        passage_open = bool(opened & self.passage_entries)
+        interior_open = bool(opened & self.interior_entries)
+        if not passage_open:
+            opened -= self.interior_entries
+        if not interior_open:
+            opened -= self.passage_entries
+        return opened
 
     def current_alignment(self):
         """The live flag, or None when it cannot be read or is not one of
@@ -343,11 +442,11 @@ class BridgeConnectionEntitySource:
                 self.logger.info(
                     "BRIDGE CONNECTIONS alignment %d, generation %d",
                     alignment, self.generation)
-        row = self.enable_table[alignment]
+        opened = self.open_entries(self.enable_table[alignment])
         pose = self.player_pose()
         result = []
         for segment in self.segments:
-            if row.get(segment.entry_index) != 1:
+            if segment.entry_index not in opened:
                 continue
             height = (
                 segment.deck.walk_height if segment.deck is not None

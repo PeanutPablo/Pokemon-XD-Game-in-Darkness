@@ -226,6 +226,31 @@ class WaveFormatTests(unittest.TestCase):
 
 
 class NPCInteractionTests(unittest.TestCase):
+    def test_static_story_record_without_live_actor_does_not_announce(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sound = Path(directory) / "sound.wav"
+            with wave.open(str(sound), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(8000)
+                output.writeframes(b"\0\0" * 10)
+            stale = NPC(
+                0xA2, 3, True, 1, Position(0, 0, 0),
+                name_id=100, interaction_radius=10,
+                live_actor_present=False)
+            speech = Speech()
+            context = npc_beacons.NPCInteractionContext()
+            reader = NPCSoundReader(
+                Source(stale), [sound], Player(), Logger(), speech=speech,
+                entity_names={100: "Mirror B."},
+                interaction_context=context)
+
+            reader.poll_once()
+
+            self.assertEqual(speech.events, [])
+            self.assertIsNone(context.name)
+            self.assertIsNone(context.identity)
+
     def test_entering_exact_interaction_radius_announces_name_once(self):
         with tempfile.TemporaryDirectory() as directory:
             sound = Path(directory) / "sound.wav"
@@ -356,9 +381,15 @@ class NPCInteractionTests(unittest.TestCase):
         # The categories the project owner asked for ("elevator" added
         # 2026-08-10 with sounds/elevators.wav). A category listed here
         # with no file would silently fall back to the generic NPC tone.
+        #
+        # "pokemart" REMOVED 2026-08-18 with the role labelling that was
+        # the only thing producing it -- a room-id guess, so every NPC in a
+        # Mart sounded like the clerk. `sounds/pokemarts.wav` is still in
+        # the repo; restoring the category is one line in
+        # PASSIVE_BEACON_SOUND_FILES once a clerk can actually be detected.
         self.assertEqual(
             set(npc_beacons.PASSIVE_BEACON_SOUND_FILES),
-            {"npc", "pokemart", "item", "door", "warp", "elevator"})
+            {"npc", "item", "door", "warp", "elevator"})
         self.assertEqual(
             len(set(npc_beacons.PASSIVE_BEACON_SOUND_FILES.values())),
             len(npc_beacons.PASSIVE_BEACON_SOUND_FILES),

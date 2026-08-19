@@ -33,11 +33,13 @@ built on inference" middle state.
 """
 import math
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 
 from .pathfinding import (
     HEIGHT_CONTINUITY_TOLERANCE,
+    destination_target_tiles,
     TILE_SIZE,
     _tile_center,
     build_room_geometry,
@@ -45,11 +47,17 @@ from .pathfinding import (
     flow_field_from,
     flow_field_toward,
     reconstruct_route,
+    region_crossing_segments,
     resolve_destination_node,
     resolve_node,
     simplify_route,
     waypoint_span_for_route,
 )
+from .collision_object_enable import (
+    EnableStateUnavailable,
+    StaticObjectEnableState,
+)
+from .region_geometry import interaction_volume_keys, parse_regions
 from .terrain_footsteps import load_room_triangles, load_walk_model_triangles
 
 MOVING_TARGET_REBUILD_DISTANCE = TILE_SIZE
@@ -225,8 +233,29 @@ longer accumulates toward a permanent give-up. Nodes that already failed
 validation stay excluded regardless; only the attempt counter replenishes."""
 
 
+_NO_OPINION = 0.0
+"""Returned by `region_component_cost` when it cannot answer cheaply.
+Distinct from `None`, which means "the graph cannot reach this" --
+conflating the two would let "I do not know" masquerade as
+"unreachable" and silently drop valid components."""
+
+
 class RouteConfidence(Enum):
     """How much a currently active route should be trusted.
+
+    **VERIFIED means the navigation graph provides a continuous ordinary
+    walkable route to the destination's interaction region.** It has never
+    been allowed to mean "the graph got reasonably close", and as of
+    2026-08-12 it no longer can: the reachability fallback used to accept a
+    reseed within 64 units of the destination and report the result
+    VERIFIED, which measured across the whole game misled the player in
+    86.9% of the routes it accepted -- including one that ended 1678 units
+    away. Acceptance is now local connectivity into the destination's own
+    arrival tiles (see `pathfinding.destination_target_tiles`), so a route
+    that exists is a route that arrives.
+
+    The direct fallback is never VERIFIED; it is DIRECT_FALLBACK, and the
+    guide says "No walkable path found; guiding directly" exactly once.
 
     VERIFIED -- the normal case: a route was successfully built from the
     game's own CCD walk model, with real height and layer data throughout.
@@ -244,12 +273,53 @@ class RouteConfidence(Enum):
     own top docstring), so a route that builds successfully is always
     VERIFIED."""
     VERIFIED = "verified"
+    PARTIAL = "partial"
+    """A real walkable route, but to the closest point the graph can
+    reach rather than to the destination itself. Announced as such --
+    see `NavigationResult.partial_shortfall`. Never silent, and never
+    VERIFIED."""
     FAILED = "failed"
     DIRECT_FALLBACK = "direct_fallback"
 
 
 def _distance_xz(a, b):
     return math.hypot(a.x - b.x, a.z - b.z)
+
+
+def _region_component_key(region, position):
+    """Which VOLUME of a region-backed destination a point belongs to.
+
+    Separates the three things a region destination conflates:
+
+    1. **identity** -- the trigger volume, which is what this returns;
+    2. **the spoken point** -- `Region.nearest_point`, which slides
+       continuously along the volume's edge as the player walks and is what
+       the beacon should keep announcing;
+    3. **the route's arrival set** -- `pathfinding.destination_target_tiles`,
+       already derived from the region's own triangles.
+
+    Only (2) moves when the player walks. Treating it as the destination's
+    identity is what made `NavigationService` rebuild a route that had not
+    changed; see the call site in `update`.
+
+    Returns the selected component's triangles (hashable, and the same value
+    `region_target._same` compares), or `None` for a point destination -- and
+    `None` never compares equal to anything here, so a genuinely moving
+    target keeps the ordinary drift rule."""
+    if region is None or position is None:
+        return None
+    components = getattr(region, "components", None)
+    if components is None:
+        return None
+    best = None
+    best_distance = None
+    for component in components():
+        distance = component.distance(position.x, position.z)
+        if distance is None:
+            continue
+        if best_distance is None or distance < best_distance:
+            best_distance, best = distance, component
+    return None if best is None else best.triangles
 
 
 @dataclass
@@ -304,6 +374,11 @@ class NavigationResult:
     confidence: object = RouteConfidence.VERIFIED
     progress_invalidated: bool = False
     waypoint_advanced: bool = False
+    partial_started: bool = False
+    """True on the single poll where a PARTIAL route begins, so the
+    caller speaks its one-shot warning once rather than every poll."""
+    partial_shortfall: object = None
+    partial_vertical: object = None
 
 
 @dataclass
@@ -340,6 +415,14 @@ class _Route:
     rebuild_attempts: int = 0
     abandoned: bool = False
     abandonment_announced: bool = False
+    destination_component: object = None
+    """Which VOLUME of a region-backed destination this route targets --
+    `region_geometry.Region` component triangles, or `None` for a point
+    destination. This, not `destination_position`, is the destination's
+    identity for rebuild purposes; see `_region_component_key`."""
+    partial_shortfall: object = None
+    partial_vertical: object = None
+    partial_announced: bool = False
     reached_destination_node: bool = False
     """Trace-only latch so `route_success` is emitted once per route rather
     than on every poll of the fine approach. Carries no routing meaning."""
@@ -353,6 +436,10 @@ class _Route:
     """Lazily-built index {tile: [node, ...]} over this route's flow field,
     used by `NavigationService._field_node_at` to map a real player position
     onto the graph robustly -- see that method's own docstring."""
+    destination_region: object = None
+    """The destination's `region_geometry.Region`, when it has one.
+    Held so a rebuild seeds against the same arrival tiles the original
+    build accepted -- see `pathfinding.destination_target_tiles`."""
     waypoint_span: object = None
     """Waypoint spacing for THIS route, from `waypoint_span_for_route`.
     Captured once, from the route's initial length, and held fixed for its
@@ -362,12 +449,60 @@ class _Route:
 
 
 class NavigationService:
-    def __init__(self, collision_dir, room_codes, logger, clock=time.monotonic):
+    def __init__(self, collision_dir, room_codes, logger, clock=time.monotonic,
+                 enable_state=None, room_change_regions=None):
         self.collision_dir = collision_dir
         self.room_codes = dict(room_codes)
         self.logger = logger
         self.clock = clock
+        self.room_change_regions = room_change_regions
+        """`(floor_id) -> {region index}` for the regions in that room that
+        MOVE THE PLAYER TO ANOTHER ROOM -- warps, doors, elevators.
+
+        Optional, and `None` (the default) restores the pre-2026-08-17
+        behaviour of routing straight through every one of them. The live
+        app supplies it from the same authoritative `common.rel` records the
+        "Exits" entity category is built from, so the set routing avoids and
+        the set the player can select are the same set by construction.
+
+        **Why routing has to know (live 2026-08-17, `M6_out`).** The project
+        owner autowalked to the world-map exit at Gateon Port and arrived in
+        the parts shop instead. The route was not wrong about geometry: its
+        second leg ran from (92, 196) to (89, 223), and warp region 7 -- the
+        parts-shop door, `common.rel` record 727, target room 0x97 -- is a
+        trigger curtain 25 units wide at z=214.0, which that leg crosses
+        0.69 units from its centre. Both attempts ended the same way.
+
+        Nothing in the router had any concept of this. Worse, the one place
+        that knew these regions existed made it more likely, not less:
+        `interaction_volume_keys` deliberately REMOVES their triangles from
+        the wall set so a doorway is never rebuilt as a barrier (needed for
+        Agate's Relic Stone cave, which is a trigger you must walk into and
+        which does not change rooms). Correct for that case, and exactly
+        wrong for a door you are only walking past.
+
+        The distinction that matters is not "is this an interaction region"
+        but "does crossing it move me somewhere else", which is a question
+        only the warp records can answer -- so this is where the answer comes
+        in. The destination's own region is always exempt: routing to a door
+        obviously has to be allowed to reach it."""
+        self.enable_state = (
+            StaticObjectEnableState() if enable_state is None else enable_state)
+        """Which CCD collision objects the running game currently considers.
+
+        Defaults to `StaticObjectEnableState` so offline tools and the many
+        tests that build geometry from a bare `.ccd` keep working unchanged;
+        the live app passes a `LiveObjectEnableState`. See
+        `collision_object_enable.py` for why "everything enabled" is not a
+        safe default against a running game."""
+        self._enable_signature = None
+        """Signature of the enable state the cached geometry was built from.
+        `None` means "not tracking" (the static state, which never changes)."""
         self._geometry_cache = {}
+        self._geometry_signature = {}
+        self._interaction_volume_cache = {}
+        self._region_cache = {}
+        self._avoid_segment_cache = {}
         self._wall_triangle_cache = {}
         self._walk_triangle_cache = {}
         self._route = None
@@ -378,28 +513,183 @@ class NavigationService:
         can be diagnosed from where the player actually is rather than from
         the destination. Never used for routing."""
 
+    def refresh_enable_state(self, floor_id):
+        """Re-read the engine's collision-object enable bits and report
+        whether they changed since the cached geometry was built.
+
+        Called once per poll from `begin`/`update`, never from a route build:
+        `build_room_geometry` asks `is_enabled` once per triangle, so the read
+        has to be amortised into a single snapshot or a `M6_out` build would
+        issue tens of thousands of memory reads.
+
+        Returns True when the caller should treat existing routing state as
+        stale. A state with no `refresh` (the static one) never changes and so
+        never reports a change."""
+        refresh = getattr(self.enable_state, "refresh", None)
+        if refresh is None:
+            return False
+        signature = refresh(floor_id)
+        if signature == self._enable_signature:
+            return False
+        previous = self._enable_signature
+        self._enable_signature = signature
+        if previous is None and signature is None:
+            return False
+        if previous is None:
+            # First snapshot of the session, not a toggle. Logging this as
+            # "changed" made the very first line of every session read as if
+            # the engine had just altered the world.
+            self.logger.info(
+                "COLLISION enable-state initialised floor=0x%X disabled=%s",
+                floor_id, self._disabled_summary())
+            return False
+        # Only geometry built under the OLD signature is stale. Dropping the
+        # whole cache would re-parse and re-index every room the session has
+        # visited, which for M6_out alone is seconds of work.
+        stale = [
+            key for key, built in self._geometry_signature.items()
+            if built != signature
+        ]
+        for key in stale:
+            self._geometry_cache.pop(key, None)
+            self._geometry_signature.pop(key, None)
+        self.logger.info(
+            "COLLISION enable-state changed floor=0x%X rooms_invalidated=%d "
+            "disabled=%s", floor_id, len(stale), self._disabled_summary())
+        return bool(stale) or previous is not None
+
+    def _disabled_summary(self):
+        snapshot = getattr(self.enable_state, "snapshot", None)
+        if snapshot is None:
+            return "?"
+        return ",".join(str(index) for index in snapshot.disabled_entries()) or "none"
+
+    def _interaction_volumes(self, floor_id):
+        """Triangle keys of this room's interaction regions, so a trigger
+        volume is never rebuilt as a wall. Cached per room -- the `.ccd`
+        never changes. Returns an empty set when the file is unavailable,
+        which restores the previous behaviour rather than failing the room."""
+        if floor_id in self._interaction_volume_cache:
+            return self._interaction_volume_cache[floor_id]
+        code = self.room_codes.get(floor_id)
+        path = Path(self.collision_dir) / f"{code}.ccd" if code else None
+        volumes = frozenset()
+        if path is not None and path.is_file():
+            try:
+                volumes = interaction_volume_keys(path.read_bytes())
+            except (OSError, ValueError) as exc:
+                self.logger.debug(
+                    "NAVIGATION interaction volumes unavailable floor=0x%X: %s",
+                    floor_id, exc)
+        self._interaction_volume_cache[floor_id] = volumes
+        return volumes
+
+    def _regions(self, floor_id):
+        """This room's interaction regions, `{index: Region}`. Cached: the
+        `.ccd` never changes. Empty when unavailable, which degrades to the
+        old route-through-anything behaviour rather than failing the room."""
+        if floor_id in self._region_cache:
+            return self._region_cache[floor_id]
+        code = self.room_codes.get(floor_id)
+        path = Path(self.collision_dir) / f"{code}.ccd" if code else None
+        regions = {}
+        if path is not None and path.is_file():
+            try:
+                regions = parse_regions(path.read_bytes())
+            except (OSError, ValueError) as exc:
+                self.logger.debug(
+                    "NAVIGATION regions unavailable floor=0x%X: %s",
+                    floor_id, exc)
+        self._region_cache[floor_id] = regions
+        return regions
+
+    def _avoid_segments(self, floor_id, destination_region):
+        """Trigger curtains the route must not cross, because crossing one
+        would move the player to another room they did not ask for.
+
+        Returns XZ segments no route leg may cross. One exemption: **the
+        destination's own region**. Routing to a door has to be allowed to
+        reach it, and `destination_target_tiles` derives the arrival tiles
+        from those very triangles -- refusing them would turn every warp
+        destination into an instant refusal.
+        Someone who has just stepped out of a shop is standing ON that
+        shop's trigger, and that needs no special case here: crossing is
+        what is refused, not standing, so their own node stays routable and
+        the first leg simply has to lead away from the curtain rather than
+        back through it.
+
+        Only the per-region segment lists are cached; the exemptions depend
+        on the route, not the room."""
+        if self.room_change_regions is None:
+            return ()
+        try:
+            indices = self.room_change_regions(floor_id)
+        except Exception as exc:
+            self.logger.debug(
+                "NAVIGATION room-change regions unavailable floor=0x%X: %s",
+                floor_id, exc)
+            return ()
+        if not indices:
+            return ()
+        regions = self._regions(floor_id)
+        exempt_index = getattr(destination_region, "index", None)
+        segments = []
+        for index in indices:
+            if index == exempt_index:
+                continue
+            region = regions.get(index)
+            if region is None:
+                continue
+            key = (floor_id, index)
+            cached = self._avoid_segment_cache.get(key)
+            if cached is None:
+                cached = region_crossing_segments(region)
+                self._avoid_segment_cache[key] = cached
+            segments.extend(cached)
+        return tuple(segments)
+
     def _geometry_for(self, floor_id):
-        if floor_id not in self._geometry_cache:
+        signature = self._enable_signature
+        cached = self._geometry_cache.get(floor_id)
+        if cached is not None and self._geometry_signature.get(floor_id) != signature:
+            cached = None
+            self._geometry_cache.pop(floor_id, None)
+        if cached is None:
             wall_triangles = load_room_triangles(
                 self.collision_dir, self.room_codes, self._wall_triangle_cache,
                 floor_id, self.logger)
             walk_triangles = load_walk_model_triangles(
                 self.collision_dir, self.room_codes, self._walk_triangle_cache,
                 floor_id, self.logger)
-            geometry = build_room_geometry(
-                walk_triangles, wall_triangles, floor_id=floor_id)
+            try:
+                geometry = build_room_geometry(
+                    walk_triangles, wall_triangles, floor_id=floor_id,
+                    enable_state=self.enable_state,
+                    interaction_volumes=self._interaction_volumes(floor_id))
+            except EnableStateUnavailable as exc:
+                # No safe guess exists -- see EnableStateUnavailable. Refusing
+                # here drops this room to direct guidance through the caller's
+                # existing `geometry is None` path, which is the same honest
+                # failure a room with no walk model already takes.
+                self.logger.warning(
+                    "NAVIGATION room load floor=0x%X room=%s refused: %s",
+                    floor_id, self.room_codes.get(floor_id, "?"), exc)
+                return None
             # Room-load diagnostic: which model is governing passability
-            # here, and on what evidence. Logged once per room per session
-            # (this cache is never invalidated), so it is cheap and makes
-            # every later route line in the log interpretable.
+            # here, and on what evidence. Logged once per room per enable
+            # signature, so it is cheap and makes every later route line in
+            # the log interpretable -- and a re-log now also marks the moment
+            # an object toggle rebuilt the room.
             self.logger.info(
                 "NAVIGATION room load floor=0x%X room=%s walk_triangles=%d "
                 "wall_triangles=%d passability=swept collision_radius=%.2f "
-                "tile_size=%.1f",
+                "tile_size=%.1f disabled_objects=%s",
                 floor_id, self.room_codes.get(floor_id, "?"),
                 len(geometry.walk_triangles), len(geometry.wall_triangles),
-                geometry.collision_radius, geometry.tile_size)
+                geometry.collision_radius, geometry.tile_size,
+                self._disabled_summary())
             self._geometry_cache[floor_id] = geometry
+            self._geometry_signature[floor_id] = signature
         return self._geometry_cache[floor_id]
 
     def _trace(self, event, **fields):
@@ -477,13 +767,17 @@ class NavigationService:
         return fields
 
     def _try_build(self, floor_id, destination_position, keep_on_failure,
-                    blocked_nodes=frozenset(), rebuild_attempts=0):
+                    blocked_nodes=frozenset(), rebuild_attempts=0,
+                    destination_region=None):
         geometry = self._geometry_for(floor_id)
+        avoid_segments = self._avoid_segments(floor_id, destination_region)
         start = self.clock()
         field = (
             flow_field_toward(
                 geometry, destination_position, self._last_player_position,
-                blocked_nodes=blocked_nodes)
+                blocked_nodes=blocked_nodes,
+                destination_region=destination_region,
+                blocked_segments=avoid_segments)
             if geometry.walk_triangles else None
         )
         duration = self.clock() - start
@@ -544,13 +838,27 @@ class NavigationService:
             seed_layers="|".join(str(v) for v in sorted(dest_node[1])),
             rebuild_attempts=rebuild_attempts,
             duration_s=duration,
+            # How many trigger curtains this route was forbidden to cross.
+            # Logged because the failure it prevents is invisible otherwise:
+            # the 2026-08-17 parts-shop route looked completely healthy in
+            # the log right up to the room change.
+            avoided_triggers=len(avoid_segments),
             **self._trace_projections(geometry, destination_position))
         self._route = _Route(
             floor_id=floor_id, geometry=geometry, flow_field=field,
             destination_position=destination_position, built_at=start,
-            failed_nodes=set(blocked_nodes), rebuild_attempts=rebuild_attempts)
+            failed_nodes=set(blocked_nodes), rebuild_attempts=rebuild_attempts,
+            destination_region=destination_region,
+            destination_component=_region_component_key(
+                destination_region, destination_position),
+            partial_shortfall=stats.get("partial_shortfall"),
+            partial_vertical=stats.get("partial_vertical"),
+            confidence=(RouteConfidence.PARTIAL
+                        if stats.get("partial_guidance")
+                        else RouteConfidence.VERIFIED))
 
-    def begin(self, floor_id, destination_position, player_position=None):
+    def begin(self, floor_id, destination_position, player_position=None,
+              destination_region=None):
         """Start guiding toward `destination_position` in `floor_id`,
         discarding any previous route/hysteresis state. Call on guide
         activation (and treat a fresh activation as the only time a failed
@@ -568,21 +876,46 @@ class NavigationService:
         self._last_rebuild_attempt = self.clock()
         self._path_was_available = True
         self._route = None
+        self.refresh_enable_state(floor_id)
         if player_position is not None:
             self._last_player_position = player_position
-        self._try_build(floor_id, destination_position, keep_on_failure=False)
+        self._try_build(floor_id, destination_position, keep_on_failure=False,
+                        destination_region=destination_region)
 
-    def update(self, floor_id, destination_position, player_position=None):
+    def update(self, floor_id, destination_position, player_position=None,
+               destination_region=None):
         """Call every active poll with the current floor and the target's
         current real position. Rebuilds when there's no active route yet,
-        the room changed, or the destination has drifted past
-        `MOVING_TARGET_REBUILD_DISTANCE` (gated by `MIN_REBUILD_INTERVAL`).
+        the room changed, the collision-object enable state changed, the
+        destination moved to a different trigger VOLUME, or a point
+        destination has drifted past `MOVING_TARGET_REBUILD_DISTANCE` (gated
+        by `MIN_REBUILD_INTERVAL`).
+
+        **Drift does not apply within one region component.** A region
+        destination's point slides along the volume's edge as the player
+        walks, and that is not the destination changing -- see
+        `_region_component_key`.
         A rebuild attempt that fails leaves an existing same-room route and
         its waypoint exactly as-is rather than dropping to direct
         guidance -- only a room change whose rebuild also fails, or never
         having had a route at all, triggers the fallback signal."""
         if player_position is not None:
             self._last_player_position = player_position
+        if self.refresh_enable_state(floor_id) and self._route is not None:
+            # The engine toggled a collision object: a pier rotated, a
+            # doorway opened. Every claim the active route makes was computed
+            # against geometry that no longer exists, so it is discarded
+            # outright rather than allowed to keep steering -- and the rebuild
+            # is NOT cooldown-gated, because this is a discrete world event
+            # like a room change, not per-poll target drift.
+            self._trace("enable_state_changed", floor=floor_id,
+                        disabled=self._disabled_summary())
+            self._route = None
+            self._last_rebuild_attempt = self.clock()
+            self._try_build(floor_id, destination_position,
+                            keep_on_failure=False,
+                            destination_region=destination_region)
+            return
         if self._route is not None and self._route.abandoned:
             # Collision-based routing was already abandoned for this
             # activation after real-progress validation failed twice (see
@@ -595,14 +928,43 @@ class NavigationService:
             if now - self._last_rebuild_attempt < MIN_REBUILD_INTERVAL:
                 return
             self._last_rebuild_attempt = now
-            self._try_build(floor_id, destination_position, keep_on_failure=False)
+            self._try_build(floor_id, destination_position, keep_on_failure=False,
+                            destination_region=destination_region)
             return
         if floor_id != self._route.floor_id:
             # A room change is a discrete, meaningful event -- always
             # rebuild immediately (no cooldown gate), and don't preserve the
             # old room's route if the new room's build fails.
             self._last_rebuild_attempt = self.clock()
-            self._try_build(floor_id, destination_position, keep_on_failure=False)
+            self._try_build(floor_id, destination_position, keep_on_failure=False,
+                            destination_region=destination_region)
+            return
+        component = _region_component_key(
+            destination_region, destination_position)
+        if component is not None and component == self._route.destination_component:
+            # Same trigger VOLUME as the active route: the point moved, the
+            # destination did not. Nothing a rebuild would produce differs --
+            # `destination_target_tiles` derives the arrival set from the
+            # region's own triangles and ignores this point entirely, and the
+            # flow field is seeded AT the destination and floods outward, so
+            # it already covers wherever the player has walked to.
+            #
+            # Live 2026-08-13 05:49:31-38, M3_out, "to Relic Stone cave":
+            # five full rebuilds of a 1861-node room in seven seconds, one
+            # every poll that cleared MIN_REBUILD_INTERVAL. The cave's trigger
+            # has a long edge at z=-23.86 and the player was walking parallel
+            # to it along the clifftop, so `Region.nearest_point` returned
+            # (player.x, -23.86) every poll -- `target_pos.x` tracked
+            # `start_pos.x` 1:1 and drift crossed the 8.0 threshold on every
+            # 8 units walked.
+            #
+            # It was not merely wasteful. Reprojecting that sliding point
+            # picked a different SURFACE at different x: at x=-38.04 the
+            # nearest floor under (x, -23.86) is the clifftop itself
+            # (y=120.00, 1637 nodes, "8 units away, 2 waypoints"), while at
+            # x=-27.97 it is the cave floor below (y=-5.04, 1861 nodes, "686
+            # units away, 30 waypoints"). The guide alternated between those
+            # two answers for one unchanged destination.
             return
         drift = _distance_xz(
             destination_position, self._route.destination_position)
@@ -612,7 +974,48 @@ class NavigationService:
         if now - self._last_rebuild_attempt < MIN_REBUILD_INTERVAL:
             return
         self._last_rebuild_attempt = now
-        self._try_build(floor_id, destination_position, keep_on_failure=True)
+        self._try_build(floor_id, destination_position, keep_on_failure=True,
+                        destination_region=destination_region)
+
+    def region_component_cost(self, floor_id, player_position, component):
+        """Ordering value for one component of an interaction region, or
+        `None` when the navigation graph cannot reach it.
+
+        This is the hook that keeps entity speech and routing agreeing:
+        `region_target.RegionTargetSelector` asks it which volumes of a
+        multi-volume region are walkable, so the beacon cannot name a volume
+        the route would refuse.
+
+        **It must never flood.** This is called per entity per poll. An
+        earlier version answered from a precomputed component map, which
+        measured at 29.10 s for the first request in `M6_out` against 2.28 s
+        without it -- the map floods the whole 21000-node room before it can
+        answer anything. A per-call flood is worse still.
+
+        So it answers only from work already done: the ACTIVE ROUTE's own
+        flow field. If the player is in that field and the component's
+        arrival tiles are too, they are in one connected component by
+        construction -- the field is the graph's own reachability answer.
+        With no active route there is no cheap sound answer, so it returns
+        `None` for "no opinion", and the selector falls back to nearest
+        point. That is the honest trade: the invariant is enforced exactly
+        when the guide is actually running, and speech is never blocked
+        waiting on a flood."""
+        route = self._route
+        if route is None or route.abandoned or route.floor_id != floor_id:
+            return _NO_OPINION
+        field = route.flow_field
+        geometry = route.geometry
+        seed = resolve_node(geometry, player_position)
+        if seed is None:
+            return _NO_OPINION
+        if not any(node[0] == seed[0] for node in field.node_height):
+            return _NO_OPINION
+        tiles = destination_target_tiles(geometry, player_position, component)
+        reached = [node for node in field.node_height if node[0] in tiles]
+        if not reached:
+            return None
+        return min(field.cost_so_far.get(node, math.inf) for node in reached)
 
     def clear(self):
         self._route = None
@@ -780,26 +1183,39 @@ class NavigationService:
                 room=self.room_codes.get(route.floor_id, "?"),
                 attempt=route.rebuild_attempts + 1,
                 max_rebuilds=MAX_ROUTE_REBUILDS_PER_ACTIVATION,
-                blocked_nodes=len(route.failed_nodes))
+                # Movement without closing on an aim point proves only that
+                # this waypoint attempt did not work for the player.  It does
+                # NOT prove the underlying walk-model node is impassable.
+                # Removing such a node can sever the only real ramp into a
+                # destination: live in M3_out it turned a valid route to the
+                # Relic Stone cave into a 598-unit partial route ending on the
+                # clifftop above it.  Rebuild from the player's new position,
+                # but preserve the authoritative graph intact.
+                blocked_nodes=0)
             self._try_build(
                 route.floor_id, route.destination_position, keep_on_failure=False,
-                blocked_nodes=route.failed_nodes,
-                rebuild_attempts=route.rebuild_attempts + 1)
+                blocked_nodes=frozenset(),
+                rebuild_attempts=route.rebuild_attempts + 1,
+                destination_region=route.destination_region)
+            if self._route is not None:
+                # Retain the attempts as diagnostics only.  They must never
+                # become graph exclusions without collision evidence.
+                self._route.failed_nodes = set(route.failed_nodes)
             if self._route is not None:
                 # Re-resolve immediately against the freshly rebuilt field so
                 # this same poll returns usable guidance instead of wasting a
                 # cycle -- the fresh route's progress state starts clean, so
                 # this cannot recurse again on the very same poll.
                 return self.next_waypoint(player_position)
-            # The rebuild itself failed outright (no route at all avoiding
-            # the failed node) -- restore the old route object purely to
-            # carry the abandonment state forward; `abandoned=True` below
+            # The rebuild itself failed outright -- restore the old route
+            # object purely to carry the abandonment state forward;
+            # `abandoned=True` below
             # short-circuits `next_waypoint` before its now-stale
             # geometry/flow_field would ever be read again.
             self._route = route
         route.abandoned = True
         # Item 12, failure side. `rebuild_failed` distinguishes "no route at
-        # all avoiding the bad node" from "rebuilt and still made no
+        # all from the new position" from "rebuilt and still made no
         # progress" -- different problems with the same visible outcome.
         self._trace(
             "route_abandoned",
@@ -1167,10 +1583,18 @@ class NavigationService:
         if failed:
             return self._handle_waypoint_failure(route, player_position)
 
+        partial_started = (
+            route.confidence is RouteConfidence.PARTIAL
+            and not route.partial_announced)
+        if partial_started:
+            route.partial_announced = True
         return NavigationResult(
             route.flow_field.node_position(route.current_waypoint_node),
             True, False, remaining_distance, initial_distance,
-            confidence=route.confidence, waypoint_advanced=waypoint_advanced)
+            confidence=route.confidence, waypoint_advanced=waypoint_advanced,
+            partial_started=partial_started,
+            partial_shortfall=route.partial_shortfall,
+            partial_vertical=route.partial_vertical)
 
     def remaining_route(self, player_position):
         """Ordered list of world positions from the player's current node to

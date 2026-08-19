@@ -13,6 +13,7 @@ from .entities import Entity
 from .messages import LocalDataError
 from .npc_beacons import Position
 from .region_geometry import parse_regions
+from .region_target import RegionTargetSelector
 
 INTERACTION_STRIDE = 0x1C
 COMMON_SCRIPT_MARKER = 0x0596
@@ -446,7 +447,20 @@ def _lettered_duplicate_labels(entities):
 
 
 
-def _region_position(regions, region_index, pose):
+def _reachability_cost(source, room_id, pose):
+    """The cost callback `RegionTargetSelector` needs, or None when no
+    navigation graph is available.
+
+    This is what keeps the spoken component and the routed component the
+    same one: both consult the same graph through here."""
+    oracle = getattr(source, "reachability", None)
+    if oracle is None:
+        return None
+    return lambda component: oracle(room_id, pose.position, component)
+
+
+def _region_position(regions, region_index, pose, selector=None,
+                     cost=None):
     """Nearest point of the interaction region to the player.
 
     Phase 3b (2026-08-10). These sources announced a region's CENTROID,
@@ -464,11 +478,29 @@ def _region_position(regions, region_index, pose):
 
     Y still comes from the region's floor, for the reason
     `region_geometry` records: the player's Y is their feet, and these are
-    tall trigger volumes."""
+    tall trigger volumes.
+
+    **2026-08-12: the point comes from the SELECTED COMPONENT**, not from
+    the whole region. A region with several disjoint volumes was previously
+    announced at whichever was Euclidean-nearest, which could be a volume
+    behind a wall while the route targeted a reachable one -- speech and
+    routing naming different places. `selector` decides once; both use it.
+    Passing no selector keeps the old whole-region behaviour, which is what
+    the tests that predate this rely on."""
     region = regions.get(region_index)
     if region is None:
         return None
-    point = region.nearest_point(pose.position.x, pose.position.z)
+    component, inside, _reachable = (
+        selector.select(region, pose.position.x, pose.position.z, cost)
+        if selector is not None
+        else (region, False, True))
+    if inside:
+        # Standing in the trigger already. Announcing a direction to some
+        # edge of it would send the player away from where they need to be;
+        # their own position is the honest answer, and the interaction
+        # wording downstream reads it as "here".
+        return Position(pose.position.x, region.anchor[1], pose.position.z)
+    point = component.nearest_point(pose.position.x, pose.position.z)
     if point is None:
         return None
     return Position(point[0], region.anchor[1], point[1])
@@ -477,11 +509,14 @@ def _region_position(regions, region_index, pose):
 class AuthoritativeWarpEntitySource:
     """Room-scoped warp entities built only from common.rel and CCD data."""
 
-    def __init__(self, memory, profile, pose_source, records, collision_dir, room_codes, room_names=None):
+    def __init__(self, memory, profile, pose_source, records, collision_dir, room_codes, room_names=None,
+                 reachability=None):
         self.memory, self.profile, self.pose_source = memory, profile, pose_source
         self.records, self.collision_dir = tuple(records), Path(collision_dir)
         self.room_codes, self.room_names, self._centers = dict(room_codes), dict(room_names or {}), {}
         self.onward = onward_destinations(self.records)
+        self._selector = RegionTargetSelector()
+        self.reachability = reachability
 
     def player_pose(self):
         return self.pose_source.player_pose()
@@ -508,11 +543,13 @@ class AuthoritativeWarpEntitySource:
         for record in self.records:
             if record.room_id != room_id or record.region_index not in centers:
                 continue
-            position = _region_position(centers, record.region_index, pose)
+            position = _region_position(centers, record.region_index, pose,
+                                       self._selector,
+                                       _reachability_cost(self, room_id, pose))
             if position is None:
                 continue
             target = self.room_names.get(record.target_room_id, self.room_codes.get(record.target_room_id))
-            result.append(Entity(category="warp", identity=("warp", record.index), label=f"to {target}" if target else None, position=position, subtype=record.kind, metadata={"target_room_id": record.target_room_id, "target_entry_id": record.target_entry_id, "interaction_method": record.interaction_method}))
+            result.append(Entity(category="warp", identity=("warp", record.index), label=f"to {target}" if target else None, position=position, subtype=record.kind, metadata={"target_room_id": record.target_room_id, "target_entry_id": record.target_entry_id, "interaction_method": record.interaction_method, "region": centers.get(record.region_index)}))
         return _disambiguate_labels(
             result, self.onward, self.room_names, room_id)
 
@@ -524,10 +561,15 @@ class _RoomScopedInteractionSource:
     sources need it and this file's original warp class predates the need
     for a shared base."""
 
-    def __init__(self, memory, profile, pose_source, records, collision_dir, room_codes, room_names=None):
+    def __init__(self, memory, profile, pose_source, records, collision_dir, room_codes, room_names=None,
+                 reachability=None, **kwargs):
         self.memory, self.profile, self.pose_source = memory, profile, pose_source
         self.records, self.collision_dir = tuple(records), Path(collision_dir)
         self.room_codes, self.room_names, self._centers = dict(room_codes), dict(room_names or {}), {}
+        self._selector = RegionTargetSelector()
+        self.reachability = reachability
+        for name, value in kwargs.items():
+            setattr(self, name, value)
 
     def player_pose(self):
         return self.pose_source.player_pose()
@@ -564,7 +606,9 @@ class AuthoritativeElevatorEntitySource(_RoomScopedInteractionSource):
         for record in self.records:
             if record.room_id != room_id or record.region_index not in centers:
                 continue
-            position = _region_position(centers, record.region_index, pose)
+            position = _region_position(centers, record.region_index, pose,
+                                       self._selector,
+                                       _reachability_cost(self, room_id, pose))
             if position is None:
                 continue
             target = self.room_names.get(record.target_room_id, self.room_codes.get(record.target_room_id))
@@ -580,6 +624,7 @@ class AuthoritativeElevatorEntitySource(_RoomScopedInteractionSource):
                     "target_room_id": record.target_room_id,
                     "target_elevator_id": record.target_elevator_id,
                     "direction": direction,
+                    "region": centers.get(record.region_index),
                 },
             ))
         return result
@@ -588,25 +633,40 @@ class AuthoritativeElevatorEntitySource(_RoomScopedInteractionSource):
 class AuthoritativeDoorEntitySource(_RoomScopedInteractionSource):
     """Room-scoped door entities built only from common.rel and CCD data.
 
-    A door whose collision region ALSO carries a Warp record is published
-    with `metadata["beacon"] = False`, so it stays a known entity but makes
-    no sound of its own (see `entity_sources.WarpAugmentedNPCSource` for
-    that contract -- beacon eligibility is not navigation eligibility).
+    A door whose collision region ALSO carries a Warp record is DROPPED
+    entirely: it is not published as an entity at all, so it neither
+    beacons nor appears in entity navigation.
 
-    Requested by the project owner 2026-08-10: standing at a building
-    entrance played the door beacon and the warp beacon simultaneously
-    from the identical point, because in this game's data such an entrance
-    IS both -- the Door record animates the doorway, the Warp record moves
-    you. Measured over the real table, 72 of 150 doors share a region with
-    a warp, so this was not a rare edge case. The warp is the one that
-    keeps sounding: it is what the player is actually navigating to, and it
-    names its destination. The 78 doors that are not attached to a warp
-    (interior doors, scenery) are untouched and still beacon."""
+    Two requests, a week apart, converging on the same records. In this
+    game's data a building entrance IS both things -- the Door record
+    animates the doorway, the Warp record moves you -- and 72 of the 150
+    doors in the real table share a region with a warp, so this is the
+    common case rather than an edge one.
+
+    2026-08-10, beacons: standing at an entrance played the door beacon and
+    the warp beacon simultaneously from the identical point. Fixed then by
+    publishing such doors with `metadata["beacon"] = False` -- silent, but
+    still present.
+
+    2026-08-18, entity navigation: "take doors that are also warps out of
+    the item nav". Still present turned out to be the rest of the same
+    problem. Cycling the Doors category walked the player through entries
+    that are the very same spots the Exits category already lists, named
+    only "Door" and without the destination the warp entry gives -- so the
+    duplicate was strictly less informative than the thing it duplicated.
+
+    What remains in this category is exactly what the door beacon has
+    always meant: the 78 interior doors, the ones that lead between rooms
+    inside a building and are not warps. `metadata["warp_attached"]` is
+    therefore always False on a published door now; it is kept so a caller
+    that filtered on it does not silently start seeing a field that has
+    vanished."""
 
     def __init__(self, memory, profile, pose_source, records, collision_dir,
-                 room_codes, room_names=None, warp_records=()):
+                 room_codes, room_names=None, warp_records=(),
+                 reachability=None):
         super().__init__(memory, profile, pose_source, records, collision_dir,
-                         room_codes, room_names)
+                         room_codes, room_names, reachability=reachability)
         self.warp_regions = frozenset(
             (record.room_id, record.region_index) for record in warp_records)
         """Region keys occupied by a warp. Empty when no warp records are
@@ -621,17 +681,21 @@ class AuthoritativeDoorEntitySource(_RoomScopedInteractionSource):
         for record in self.records:
             if record.room_id != room_id or record.region_index not in centers:
                 continue
-            position = _region_position(centers, record.region_index, pose)
+            position = _region_position(centers, record.region_index, pose,
+                                       self._selector,
+                                       _reachability_cost(self, room_id, pose))
             if position is None:
                 continue
-            warp_attached = (
-                record.room_id, record.region_index) in self.warp_regions
+            if (record.room_id,
+                    record.region_index) in self.warp_regions:
+                # The Exits category already publishes this exact spot, with
+                # its destination named. See the class docstring.
+                continue
             metadata = {
                 "door_id": record.door_id,
-                "warp_attached": warp_attached,
+                "warp_attached": False,
+                "region": centers.get(record.region_index),
             }
-            if warp_attached:
-                metadata["beacon"] = False
             result.append(Entity(
                 category="door",
                 identity=("door", record.index),
@@ -656,7 +720,9 @@ class AuthoritativeTextEntitySource(_RoomScopedInteractionSource):
         for record in self.records:
             if record.room_id != room_id or record.region_index not in centers:
                 continue
-            position = _region_position(centers, record.region_index, pose)
+            position = _region_position(centers, record.region_index, pose,
+                                       self._selector,
+                                       _reachability_cost(self, room_id, pose))
             if position is None:
                 continue
             result.append(Entity(
@@ -664,9 +730,35 @@ class AuthoritativeTextEntitySource(_RoomScopedInteractionSource):
                 identity=("sign", record.index),
                 label="Sign",
                 position=position,
-                metadata={"message_field": record.message_field},
+                metadata={"message_field": record.message_field,
+                          "region": centers.get(record.region_index)},
             ))
         return result
+
+
+PC_LABEL_OVERRIDES = {
+    695: "Purify Chamber",
+}
+"""Per-INSTANCE PC labels, keyed on the `common.rel` record index.
+
+Record 695 is the PC in `M5_labo_1F` (room 0x8C) at region 5, and it is
+the one the project owner opens the Purify Chamber from -- confirmed in
+the 2026-08-11 log, where the chamber's own dialogue ("Welcome to the
+PURIFY CHAMBER!") and the `PURIFY CHAMBER SET` state reads both occur
+while the current floor is 0x8C, and that room's only PC-type record is
+this one.
+
+**This is a hardcode, and it is here because the game gives no
+alternative.** `Pokemon-XD-Code` documents the PC type's own parameters as
+"unused in XD", so nothing in the record distinguishes a Purify Chamber
+terminal from an ordinary storage PC. The `common.rel` record index is the
+strongest identity available -- the same key the warp sources use -- so
+the override is at least pinned to one exact object rather than to a room
+id or a coordinate.
+
+Deliberately scoped to this single instance, at the project owner's
+request. Every other PC keeps the generic label. If a derivable signal for
+"this PC opens the chamber" is ever found, this map is what it replaces."""
 
 
 class AuthoritativePCEntitySource(_RoomScopedInteractionSource):
@@ -684,14 +776,17 @@ class AuthoritativePCEntitySource(_RoomScopedInteractionSource):
         for record in self.records:
             if record.room_id != room_id or record.region_index not in centers:
                 continue
-            position = _region_position(centers, record.region_index, pose)
+            position = _region_position(centers, record.region_index, pose,
+                                       self._selector,
+                                       _reachability_cost(self, room_id, pose))
             if position is None:
                 continue
             result.append(Entity(
                 category="pc",
                 identity=("pc", record.index),
-                label="PC",
+                label=PC_LABEL_OVERRIDES.get(record.index, "PC"),
                 position=position,
-                metadata={"secondary_field": record.secondary_field},
+                metadata={"secondary_field": record.secondary_field,
+                          "region": centers.get(record.region_index)},
             ))
         return result

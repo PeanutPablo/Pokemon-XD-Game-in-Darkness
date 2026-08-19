@@ -6,6 +6,7 @@ from pathlib import Path
 from battle_narrator.collision_probe import CollisionTriangle
 from battle_narrator.npc_beacons import PlayerPose, Position
 from battle_narrator.terrain_footsteps import (
+    BLOCKED_CUE_FILENAME,
     BlockedMovementReader,
     TerrainFootstepReader,
     TerrainTonePlayer,
@@ -326,7 +327,7 @@ class TerrainTonePlayerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             player = TerrainTonePlayer(FakeWavePlayer(), Path(tmp))
             self.assertTrue((Path(tmp) / "_terrain_step_base.wav").is_file())
-            self.assertTrue((Path(tmp) / "_terrain_blocked_base.wav").is_file())
+            self.assertTrue((Path(tmp) / BLOCKED_CUE_FILENAME).is_file())
 
     def test_play_step_uses_centered_pan_and_type_dependent_pitch(self):
         import tempfile
@@ -374,7 +375,7 @@ class TerrainTonePlayerTests(unittest.TestCase):
             player = TerrainTonePlayer(wave_player, Path(tmp))
             player.play_blocked()
             [(path, pan, pitch, gain)] = wave_player.calls
-            self.assertEqual(path.name, "_terrain_blocked_base.wav")
+            self.assertEqual(path.name, BLOCKED_CUE_FILENAME)
 
     def test_real_footstep_sounds_are_used_when_available(self):
         import tempfile

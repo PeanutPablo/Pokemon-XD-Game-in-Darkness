@@ -59,12 +59,26 @@ class MessageState:
     gate: StabilityGate = field(default_factory=StabilityGate)
     mode: str | None = None
     rendering: object = None
+    spoken: bool = False
+    """Whether anything has been said for this open cycle. Only used to keep
+    the log honest: once a message has spoken, its substitutions being torn
+    down as the box closes must not be reported as an unresolved failure."""
+    spoken_subjects: tuple | None = None
+    """The battler pointers this message was ABOUT when it last spoke --
+    `Rendering.subjects` frozen. `None` until something has been said.
+
+    Exists to tell two things apart that otherwise look identical to an
+    armed state: the game printing a genuinely new line into the same task,
+    and a battler-pointer global drifting under a box that is still open.
+    See `process_allocated`."""
 
     def reset(self, packed=None, message=None, mode=None):
         self.packed = packed
         self.message = message
         self.mode = mode
         self.rendering = None
+        self.spoken = False
+        self.spoken_subjects = None
         self.gate.reset()
 
 
@@ -83,6 +97,8 @@ class BattleNarrator:
         slot_tracker=None,
         labeller=None,
         renderer=None,
+        supplemental_catalog=None,
+        supplemental_active=None,
     ):
         self.connection = connection
         self.tasks = tasks
@@ -99,6 +115,8 @@ class BattleNarrator:
         self.slot_tracker = slot_tracker
         self.labeller = labeller
         self.renderer = renderer
+        self.supplemental_catalog = supplemental_catalog
+        self.supplemental_active = supplemental_active
         self.stop_requested = False
         self.tracker = EventTracker(tasks.profile.task_capacity)
         self.states = [MessageState() for _ in range(tasks.profile.task_capacity)]
@@ -109,9 +127,11 @@ class BattleNarrator:
 
     # -- speech ------------------------------------------------------------
 
-    def speak(self, sentence, snapshot, message_id):
+    def speak(self, sentence, snapshot, message_id, event_class=None):
+        event_class = event_class or SpeechEventClass.BATTLE_EVENT
         if hasattr(self.speaker, "emit"):
-            self.speaker.emit(SpeechEventClass.BATTLE_EVENT, sentence)
+            self.speaker.emit(event_class, sentence,
+                              interrupt=event_class == SpeechEventClass.DIALOGUE)
         else:
             self.speaker.speak(sentence, interrupt=False)
         self.logger.info(sentence)
@@ -150,6 +170,11 @@ class BattleNarrator:
     def open_message(self, snapshot):
         table, message_id = split_packed_id(snapshot.packed_id)
         message = self.catalog.get(message_id) if table == 0 else None
+        if (message is None and table == 0
+                and self.supplemental_catalog is not None
+                and (self.supplemental_active is None
+                     or self.supplemental_active())):
+            message = self.supplemental_catalog.get(message_id)
         state = self.states[snapshot.index]
         state.reset(snapshot.packed_id, message)
         self.logger.debug(
@@ -168,7 +193,8 @@ class BattleNarrator:
             # Not a battle message. Field dialogue, shop notices and title
             # messages share this task array and have their own readers;
             # ownership is partitioned by which table the ID lives in.
-            self.suppress(snapshot, message_id, message, "not fight_common")
+            self.suppress(snapshot, message_id, message,
+                          "not an active owned message table")
             state.mode = "suppressed"
             return
         if self.renderer is None:
@@ -184,7 +210,8 @@ class BattleNarrator:
                           "opcode not in msgctrlcode", unknown)
             state.mode = "suppressed"
             return
-        state.mode = "render"
+        state.mode = ("render_pocket_menu"
+                      if message.context == "pocket_menu" else "render")
 
     def sample(self, state):
         """The rendered sentence, or None when the message cannot resolve.
@@ -255,6 +282,53 @@ class BattleNarrator:
             return ""
         return " ".join(f"{label[0].upper()}{label[1:]}." for label in labels)
 
+    @staticmethod
+    def _subject_anchor_lost(previous, current):
+        """True when NOTHING the message was last about is still among the
+        battlers it is about now.
+
+        Both empty-or-absent cases answer False: a message with no battler
+        substitution at all ("It's super effective!") cannot drift, and a
+        message that has not spoken yet has nothing to have drifted from."""
+        if not previous or not current:
+            return False
+        was = dict(previous)
+        return not any(was.get(code) == value for code, value in current)
+
+    def _subjects_key(self, state):
+        """WHICH POKEMON this rendering is about, as a comparable key.
+        Empty for a message with no battler substitution at all.
+
+        Keyed on the canonical `BattlerIdentity.key` -- (party position,
+        personality) -- and NOT on the raw `FightOutPokemon*` in
+        `Rendering.subjects`. The pointer is the on-field WRAPPER, which is
+        not a stable name for a Pokemon: `battle_identity`'s own module
+        docstring records that a Baton Pass keeps the wrapper and swaps the
+        `FightPokemon*` behind it, so pointer identity answers a different
+        question than "is this still about the same Pokemon". Using the
+        pointer here made the two lines of a Dragon Dance look like two
+        different subjects and swallowed the second one.
+
+        Falls back to the raw pointer for any subject that cannot be
+        resolved, so an unresolvable battler still participates in the
+        comparison rather than silently collapsing to a key that matches
+        everything."""
+        rendering = state.rendering
+        subjects = {} if rendering is None else rendering.subjects
+        resolver = getattr(self.resolver, "identity", None)
+        key = []
+        for code, fight_out in sorted(subjects.items()):
+            resolved = None
+            if resolver is not None:
+                try:
+                    identity = resolver.from_fight_out(fight_out)
+                except MemoryError:
+                    identity = None
+                if identity is not None and identity.is_resolved:
+                    resolved = identity.key
+            key.append((code, resolved if resolved is not None else fight_out))
+        return tuple(key)
+
     def _subject_identities(self, state, message_id):
         """Canonical identities for the battlers this message named.
 
@@ -284,24 +358,113 @@ class BattleNarrator:
 
     def process_allocated(self, snapshot):
         state = self.states[snapshot.index]
-        if state.mode != "render":
+        if state.mode not in {"render", "render_pocket_menu"}:
             return
         try:
             sample = self.sample(state)
             if sample is None:
-                self.suppress(
-                    snapshot, state.message.message_id, state.message,
-                    "unresolved substitution",
-                    [f"0x{code:02X}: {why}" if code is not None else why
-                     for code, why in state.rendering.unresolved])
+                if not state.spoken:
+                    # Already-spoken messages have their substitutions torn
+                    # down as the box closes; reporting that as a failure
+                    # would bury the real ones.
+                    self.suppress(
+                        snapshot, state.message.message_id, state.message,
+                        "unresolved substitution",
+                        [f"0x{code:02X}: {why}" if code is not None else why
+                         for code, why in state.rendering.unresolved])
                 return
             stable = state.gate.observe(sample)
             if stable is None:
                 return
-            sentence = self.compose(state, stable)
+            subjects = self._subjects_key(state)
+            if self._subject_anchor_lost(state.spoken_subjects, subjects):
+                # EVERY BATTLER MOVED UNDER A BOX THAT NEVER REOPENED.
+                #
+                # Live, 2026-08-18 17:12:52-53, one OPEN and one CLOSE with
+                # TWO utterances between them:
+                #
+                #   .503 OPEN  message_id=20451 '[Pokemon 15] is in Rage Mode!'
+                #   .566 SPEECH 'Taillow is in Rage Mode!'   <- real
+                #   .756 SPEECH 'Numel is in Rage Mode!'     <- invented
+                #   .819 CLOSE previous_packed=20451
+                #
+                # Numel was neither a Shadow Pokemon nor the player's, and
+                # never entered Rage Mode. What changed in that 1.2s was
+                # `_ATTACK_MONS` advancing to the next attacker in the turn
+                # while the box was still up; the armed state re-rendered
+                # the same template around the new pointer, and because the
+                # gate dedups on the RENDERED STRING the result looked like
+                # a new fact.
+                #
+                # The re-arm itself is still right, and the test is narrow
+                # ON PURPOSE. All three shapes below really occur in the
+                # production log, and only the last is wrong:
+                #
+                #   20243 Dragon Dance   actor unchanged, stat text changes
+                #                        -> 13 occurrences, all real
+                #   20215 Intimidate     actor unchanged, TARGET changes
+                #                        (a double battle: it cuts both
+                #                        foes' Attack from one box)
+                #                        -> real, and it must keep speaking
+                #   20451 Rage Mode      the sole battler changes outright
+                #                        -> the invented line
+                #
+                # So the rule is not "a subject changed" -- that would have
+                # swallowed the second half of every Intimidate. It is
+                # "NOTHING it was about is still what it is about": a real
+                # continuation of an event keeps an anchor (the actor is
+                # still the actor), while a pointer that drifted into an
+                # unrelated context shares nothing with what was spoken.
+                #
+                # Deliberately the conservative direction. A single-subject
+                # message that legitimately re-renders for a second Pokemon
+                # in one box would be suppressed, and none has been
+                # observed -- but if one exists, losing a line is the
+                # better error than inventing one, which is this project's
+                # standing rule for a cue the player would act on. Logged
+                # at WARNING with both keys so a live session can tell.
+                self.logger.warning(
+                    "SUBJECT DRIFT suppressed message_id=%d text=%r "
+                    "spoken_subjects=%r now=%r",
+                    state.message.message_id, stable,
+                    state.spoken_subjects, subjects)
+                return
+            sentence = (stable if state.mode == "render_pocket_menu"
+                        else self.compose(state, stable))
             if sentence is not None:
-                self.speak(sentence, snapshot, state.message.message_id)
-            state.mode = "done"
+                event_class = (SpeechEventClass.DIALOGUE
+                               if state.mode == "render_pocket_menu" else None)
+                self.speak(sentence, snapshot, state.message.message_id,
+                           event_class)
+            state.spoken = True
+            state.spoken_subjects = subjects
+            if state.mode == "render_pocket_menu":
+                # Left latched deliberately: this path belongs to the
+                # in-battle bag work and its re-announcement policy is not
+                # mine to change.
+                state.mode = "done"
+            # Otherwise stay ARMED. A move that changes several stats reuses
+            # ONE task and ONE message ID for each line -- Dragon Dance sends
+            # 20243 for Attack and 20243 again for Speed -- so `EventTracker`
+            # emits no event between them and nothing would re-arm a latched
+            # state. Live proof, 2026-08-10 19:26: the Attack line spoke and
+            # the Speed line produced no OPEN at all. Curse got two of its
+            # three only because Speed uses a different ID (20246), which
+            # counts as an id_change.
+            #
+            # Safe to stay armed because `StabilityGate` dedups on the
+            # RENDERED STRING, not on the message ID: an unchanged
+            # substitution is already in `seen` and returns None, while a
+            # changed one is a new fact. This is what the pre-Phase-3 code
+            # achieved with `if state.mode != "stat"`, and collapsing every
+            # message into one mode dropped it.
+            #
+            # CORRECTED 2026-08-18: "a changed one is a genuinely new fact"
+            # was too strong, and invented a Rage Mode line about a Pokemon
+            # that was not even the player's. A re-render in which EVERY
+            # battler changed is not a new fact -- see the subject-drift
+            # guard above, which is the only thing keeping this re-arm
+            # honest.
             if state.message.message_id in LOSS_IDS and self.stop_after_loss:
                 self.stop_requested = True
         except MemoryError as exc:

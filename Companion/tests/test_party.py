@@ -290,6 +290,50 @@ class PartyMemorySourceTests(unittest.TestCase):
         slots = self.source.slots()
         self.assertEqual(slots[0].heart_gauge_percent, 75)
 
+    def test_purified_pokemon_does_not_expose_stale_heart_gauge(self):
+        p = self.profile
+        self._put_slot(0, species=216)
+        hero = self.SAVEDATA_ADDRESS + p.hero_offset
+        base = hero + p.hero_party_offset
+        dark_id = 1
+        self.backend.put(base + p.dark_pokemon_data_id_offset, be16(dark_id))
+        deck_array = 0x80900000
+        self.backend.put(p.deck_dark_pokemon_pointer_address, be32(deck_array))
+        deck_record = deck_array + dark_id * p.deck_dark_pokemon_stride
+        self.backend.put(
+            deck_record + p.deck_dark_pokemon_init_dark_point_offset, be16(3000))
+        dark_record = (self.SAVEDATA_ADDRESS
+                       + p.darkpokemon_array_savedata_offset
+                       + dark_id * p.dark_pokemon_stride)
+        self.backend.put(
+            dark_record + p.dark_pokemon_flags_offset,
+            # Real packed form: encountered + caught + purified.
+            bytes([0x20 | 0x40 | p.dark_pokemon_purified_flag]))
+
+        self.assertIsNone(self.source.slots()[0].heart_gauge_percent)
+
+    def test_caught_but_unpurified_pokemon_keeps_heart_gauge(self):
+        p = self.profile
+        self._put_slot(0, species=216)
+        hero = self.SAVEDATA_ADDRESS + p.hero_offset
+        base = hero + p.hero_party_offset
+        dark_id = 1
+        self.backend.put(base + p.dark_pokemon_data_id_offset, be16(dark_id))
+        deck_array = 0x80900000
+        self.backend.put(p.deck_dark_pokemon_pointer_address, be32(deck_array))
+        deck_record = deck_array + dark_id * p.deck_dark_pokemon_stride
+        self.backend.put(
+            deck_record + p.deck_dark_pokemon_init_dark_point_offset, be16(3000))
+        dark_record = (self.SAVEDATA_ADDRESS
+                       + p.darkpokemon_array_savedata_offset
+                       + dark_id * p.dark_pokemon_stride)
+        self.backend.put(
+            dark_record + p.dark_pokemon_flags_offset, bytes([0x20 | 0x40]))
+        self.backend.put(
+            dark_record + p.dark_point_direct_offset, be32(750))
+
+        self.assertEqual(self.source.slots()[0].heart_gauge_percent, 75)
+
     def test_non_shadow_pokemon_is_unaffected_by_dark_waza_lookup(self):
         # dark_pokemon_data_id_offset left at 0 (the natural default for a
         # non-Shadow Pokemon) must never trigger a _deckDarkPokemon read.
@@ -300,6 +344,37 @@ class PartyMemorySourceTests(unittest.TestCase):
             PartyMove("TACKLE", 35), PartyMove("TAIL WHIP", 29),
             PartyMove("BITE", 23), PartyMove("SAND-ATTACK", 15),
         ))
+
+    def test_purify_chamber_visitors_are_decoded_for_shadow_gauge_summary(self):
+        p = self.profile
+        source = self.source
+        base = (self.SAVEDATA_ADDRESS + source.PURIFY_HALL_SAVEDATA_OFFSET
+                + 2 * source.PURIFY_STAGE_SIZE + source.PURIFY_VISITOR_OFFSET)
+        # Reuse the fixture's full Pokemon writer by temporarily addressing
+        # this visitor through the hero slot formula.
+        hero = self.SAVEDATA_ADDRESS + p.hero_offset
+        party_zero = hero + p.hero_party_offset
+        self._put_slot(0, species=216)
+        record = self.backend.read_bytes(party_zero, p.hero_party_stride)
+        self.backend.put(base, record)
+        dark_id = 1
+        self.backend.put(base + p.dark_pokemon_data_id_offset, be16(dark_id))
+        deck_array = 0x80900000
+        self.backend.put(p.deck_dark_pokemon_pointer_address, be32(deck_array))
+        deck_record = deck_array + dark_id * p.deck_dark_pokemon_stride
+        self.backend.put(
+            deck_record + p.deck_dark_pokemon_init_dark_point_offset, be16(3000))
+        dark_record = (self.SAVEDATA_ADDRESS
+                       + p.darkpokemon_array_savedata_offset
+                       + dark_id * p.dark_pokemon_stride)
+        self.backend.put(dark_record + p.dark_point_direct_offset, be32(750))
+        # Empty the party copy: the same Pokemon is now chamber-only.
+        self.backend.put(party_zero + p.party_species_offset, be16(0))
+
+        chamber = source.purify_chamber_slots()
+
+        self.assertEqual(len(chamber), 1)
+        self.assertEqual(chamber[0].heart_gauge_percent, 75)
 
     def test_nature_computed_from_personality_modulo(self):
         # personality % 25 == 0 -> first nature in the standard Gen 3 order.

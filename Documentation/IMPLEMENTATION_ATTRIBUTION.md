@@ -1790,25 +1790,48 @@ between the piers identifies itself: every deck segment stands exactly 4.9
 units off its deck's edge while the passage stands 53 off the nearer one,
 an order-of-magnitude gap that needs no threshold written by hand.
 
-**The one thing that could have been catastrophic here was the polarity.**
-`ENTITY_NAVIGATION_ARCHITECTURE.md` §3.7 called entries 23-31 the bridge's
-*blocking* geometry, which would make `enable == 1` mean "walled". Taken
-that way, every announcement would point a blind player at a wall, in
-every alignment. It is wrong. Rather than pick a reading, I derived each
-alignment's connections from geometry and scored both readings against the
-`ALIGNMENTS` prose in `gateon_bridge.py` — written independently, by
-whoever built that reader, from the actual game — over 4 states ×
-(northern deck, southern deck, centre passage):
+**The one thing that could have been catastrophic here was the polarity —
+and it was got wrong.** Recorded here as written on 2026-08-09, then
+corrected, because the reasoning is the point:
 
-- `enable == 1` means **connected**: **12 / 12**
-- `enable == 1` means **blocked**: **0 / 12**
+> `ENTITY_NAVIGATION_ARCHITECTURE.md` §3.7 called entries 23-31 the
+> bridge's *blocking* geometry, which would make `enable == 1` mean
+> "walled". Taken that way, every announcement would point a blind player
+> at a wall, in every alignment. It is wrong. Rather than pick a reading,
+> I derived each alignment's connections from geometry and scored both
+> readings against the `ALIGNMENTS` prose in `gateon_bridge.py` — written
+> independently, by whoever built that reader, from the actual game — over
+> 4 states × (northern deck, southern deck, centre passage):
+>
+> - `enable == 1` means **connected**: **12 / 12**
+> - `enable == 1` means **blocked**: **0 / 12**
 
-The geometry agrees independently: the two long 68.4-unit structures
-(east, north) sit across the gaps that need spanning, and the short
-~5-unit plates (west, south) bridge a step. `PolarityTests` pins both the
-12 and the 0, so the category fails loudly if those two sources ever stop
-agreeing rather than quietly inverting. The architecture document is
-corrected.
+**Corrected 2026-08-18.** §3.7 was right and this was wrong. The category
+pointed a blind player at a wall in every alignment for nine days, until
+the project owner reported it.
+
+The flaw is in the word *independently*. The `ALIGNMENTS` prose is not an
+observation of the game; it is a field-for-field restatement of the same
+enable bits — state 0's "north and west" **is** `{24, 27}`, "centre open"
+**is** `26 == 1`. It therefore agrees with whichever reading produced it,
+and 12/12 was guaranteed before the comparison was run. Two descriptions
+of one source are one source. The corroborating geometry sentence was also
+mistaken: the "short ~5-unit plates" are not plates at all but quads
+collapsed onto a single plane, with no footprint to stand on.
+
+What settles it is evidence of a different *kind*: entries 23-31
+contribute **zero** triangles to the walk model (a thing you cannot stand
+on is not a connection), seven of the nine are collapsed planes,
+`GScolsys2SetObjEnable(1, …)` switches a collision blocker **on**, and
+`pier_def` never toggles the decks. The first and last of those were
+already written in §3.7 *when the wrong conclusion was drawn from them*.
+And the consequence was checkable all along: under the old reading, no
+alignment ever opened the three gates in a line that a crossing between
+the piers must pass, so the puzzle was unsolvable.
+
+`PolarityTests` now pins the collision-data facts. The 12/12 comparison
+survives as `test_the_retired_prose_cannot_decide_the_polarity`, labelled
+as the trap it was.
 
 Two smaller decisions worth recording. Connection positions use the
 **deck's walk height**, not the hit model's own Y — those models are
@@ -2629,6 +2652,50 @@ owner's ears.
 
 — Claude
 
+## 2026-08-11 — Bag item identity-first speech (Miror Radar and TMs)
+
+Checked the production log before changing code. At 17:21:00.042 the Bag
+resolved and submitted `Key Items. Miror Radar. Quantity 1...`, but the next
+tab selection interrupted it 0.465 seconds later; at 17:21:01.394 it likewise
+resolved and submitted `TMs. Tm01. Quantity 2...` before later navigation
+replaced it. This proved that menu 44, its cursor, the hero-owned item arrays,
+and the shared item-name/description tables were already correct. The defect
+was presentation order under real navigation speed, not missing Miror-Radar or
+TM data.
+
+Changed `BagMenuReader`'s generic category-change utterance from
+category/item/quantity/description to item/quantity/category/description. The
+selected game-resolved item identity now reaches the screen reader first; no
+item IDs, TM mappings, names, or category-specific cases were hardcoded. Added
+a regression test pinning identity-first order and updated every affected exact
+assertion. Full suite verified: **1,357 passing** (one new regression test).
+
+— Codex, 2026-08-11
+
+## 2026-08-11 — Pocket-menu item-use dialogue
+
+After the project owner clarified that the missing text was the dialogue
+created by using the item, not the selected Bag row, Codex returned to the
+production log and traced the exact ownership boundary. Miror Radar's `USE`
+closed menu 45, then opened GSmsg task message 15391 for ten seconds. The
+battle reader logged and suppressed it because it was absent from
+`fight_common`; ordinary field dialogue could not see it because this flow
+does not create menu 82. The extracted `pocket_menu.fsys` type-5 table owns
+15391 and its real nested-location template, as well as the TM target and
+compatibility text and other item-use results.
+
+Generalized the existing FSYS message loader into `FsysMessageCatalog`, added
+`PocketMenuCatalog`, and taught the task narrator to render that separately
+owned catalog through the canonical live-msgvar renderer while the native Bag
+window is present. Supplemental text is announced as dialogue. The activation
+condition is the actual menu-44 window and table membership; no item IDs,
+message ranges, Miror B text, TM names, or compatibility results are
+hardcoded. Added a regression using the shipped message 15391.
+
+Full suite verified: **1,358 passing** (one new regression test).
+
+— Codex, 2026-08-11
+
 ## 2026-08-10 - PDA Spot Monitor and Shadow Monitor
 
 Codex traced and implemented the two requested PDA monitors without embedding
@@ -2652,6 +2719,27 @@ their coordinate-first announcement because they have no Pokemon identity.
 No text or Pokemon identity was hardcoded; only composition order changed.
 
 Validation: all 11 targeted PC tests and the complete 1,353-test suite pass.
+
+## 2026-08-11 - Live-log PDA, special-dialogue, and keyboard corrections
+
+Codex audited the newest 621 MB production log and traced four reported
+failures to their native owners. Spot Monitor's record count and the Pokemon
+database count are pointer-to-count globals; correcting the missing
+dereferences removes the impossible-span failures recorded live. Strategy
+Memo now follows `pMemoList +0x3C` and cursorBios slot 13 to announce the
+selected game-owned species. The naming keyboard now uses a collision-free
+row/column identity for sparse S/T versus U/V transitions.
+
+The missing Name Rater page is map-specific message 50803 in `M3_houseD_1F`.
+Its script obtains the selected Pokemon nickname and writes it through
+`Dialogs::setMsgVar(50)`, native opcode `0x32`; special dialogue pages now
+fall back to the canonical live-msgvar renderer rather than hardcoded text.
+
+Validation: 64 focused tests and the complete 1,356-test suite pass. The
+causes and pre-fix failures are live-log proven; post-fix audible confirmation
+remains pending.
+
+**Signed: Codex (OpenAI)** - 2026-08-11
 
 — Codex
 
@@ -2753,3 +2841,787 @@ disassembler the bootstrap does not carry; it degrades to silence, as
 designed. Full suite: **1,353 passing** (23 new).
 
 — Claude
+
+## 2026-08-11 — Claude: XG built, and the first real compatibility answer
+
+The project finally has its target. XG 1.2.1's UPS patch was applied by
+`Tools/apply_ups_patch.py`, written rather than downloading a patcher
+binary — UPS is small and documented, and applying it in-project means
+the three CRC32s it carries are checked instead of trusted. All three
+matched, which also settled which of the two same-sized `GXXE01` images
+on this machine is the real base (`C0F69D18`, the same one
+`_dialogue_extraction` was built from; `XD-US.iso` is a different build
+and would have produced a corrupt result). The base was copied first and
+re-hashed after: unchanged.
+
+**The gate passes.** All 8 engine signatures match, every DOL section
+keeps its address and size, `.bss` and the entry point are identical, and
+0.20% of code differs. XG is an in-place hack. `check_image_compatibility.py`
+(new) answers this from a file rather than a running Dolphin, and diffs
+two images section by section.
+
+**Two defects, both of which would have hit a player immediately, and
+neither findable without a real XG image.**
+
+The first made *every* offline table fail to load — species, moves,
+items, warps, dialogue together. One entry in XG's `common.fsys`,
+`DeckData_DarkPokemon_EU.bin`, declares 500 bytes from a stream encoding
+208; the decoded `DECK` header's own length field reads 208, so the
+stream is complete and only the outer size fields are wrong. A US build
+never reads the EU deck. The damage was disproportionate because every
+loader reaches its table through `parse_fsys`, which decodes all 27
+entries, so one unread file took down the 26 around it. `decode_lzss` now
+stops when either side runs out and zero-pads, which is what the
+console's fixed-size allocation holds anyway.
+
+The second is the more interesting one: **XG repacks the abilities table**
+— 106 abilities in the space vanilla used for 78, stride 12 → 8, name
++4 → +0, description +8 → +4. It would have spoken a wrong ability for
+every Pokémon. It cannot be fixed by detecting the game, because XG is
+identical to vanilla in disc label, internal name, section layout, `.bss`
+and all 8 signatures; there is nothing outside the table to select a
+layout by. So `ability_layout.py` derives it from the three engine
+accessors that *are* the layout — `mulli r4,r3,N` at `0x801442B0` and the
+two `lwz r3,N(r3)` at `0x80144290`/`0x80144278`. Those three words are
+the only differences in the whole accessor cluster
+`0x80144200`–`0x801442D0`, which is what makes them a description rather
+than a coincidence. A heuristic over the table's *contents* was rejected
+deliberately: that would be guessing about data a hack can make
+ambiguous, where the instructions are the game stating what it does.
+Driving the real `resolve()` against each image's own `main.dol`, XG
+resolves 101 of 101 named abilities to exactly the names XG's shipped
+documentation lists, and vanilla still gives `RUN AWAY` /
+`Makes escaping easier.` for ability 50.
+
+A third, smaller thing surfaced while verifying that: XG's Trickster has
+no description, and `resolve()` required both fields, so the player heard
+"ability 57" rather than the name. The name now survives a missing
+description.
+
+**Checked and compatible:** all 15 offline loaders build on XG with
+identical record counts (280 warps, 150 doors, 46 elevators, 26 PCs, 89
+texts, 47 world-map entries); `maximum_move_id` 374 is still exactly
+right; the `0x124` species stride holds (XG's Pikachu reads Static and
+Lightningrod, its Eevee Adaptability, all matching XG's own docs); the
+`msgctrlcode` table is byte-identical. The 169-vs-177 collision room
+count is correct behaviour, not a parse failure — XG replaced those 8
+archives with 96-byte empty FSYS stubs.
+
+**Not done, and not claimed: no live run.** All of the above is static
+analysis plus offline loader construction. The "none of 104 profile
+addresses changed" result must not be quoted without its qualification:
+only 8 of them are inside a loaded section and were actually checkable
+(7 matched; the 8th was the abilities table). The other 96 are `.bss`,
+which has no bytes to compare — strongly implied intact, but implied.
+Full detail and the open list in `XG_COMPATIBILITY.md`.
+
+Regression: the vanilla extraction regenerates byte-for-byte identical
+across all 189 files. Full suite: **1,374 passing** (16 new).
+
+— Claude
+
+## 2026-08-11 (later) — Claude: move-field sourcing audit, and the last vanilla assumption
+
+The project owner set the standing rule that the access layer works with
+vanilla and XG from **one code path**, and asked for a narrow audit of the
+move fields the narrator actually announces — not "are XG's moves
+different" (they are: 183 of 373 records replaced, same ID space, zero new
+IDs) but "does every announced field come from XG's own data, or does one
+quietly inherit vanilla?"
+
+Eight of nine were already clean. Move ID and current PP are live, and
+current PP is read twice — the menu record and `pokemon_waza` — with the
+announcement refused if they disagree. Max PP is live in battle and
+derived from base PP plus live PP Ups on the party screen. The name is
+read live and cross-checked against the player's own extraction. Base PP,
+power, accuracy and the effect description all come from the player's
+extracted `common.rel`/`dol_strings.json`. Checked against XG's own
+shipped move documentation for all 375 indices: **name, base PP, power and
+accuracy had zero disagreements**, and the sampled replaced moves
+(`Bullet Punch`, `Focus Blast`, `Poison Jab`, `Drain Punch`,
+`First Impression`) and Shadow moves (`Shadow Chill`, `Shadow Bully`,
+`Shadow Hunter`) matched field for field. Shadow moves carry type ID 0 in
+both builds, so the old `TYPE_NAMES[18] = "Shadow"` was never reachable.
+
+The ninth was wrong. **Move type names were a hardcoded tuple in this
+repository, and index 9 said "Unknown". Vanilla leaves slot 9 unused
+("?"); XG puts FAIRY there** — `Play Rough`, `Disarming Voice`,
+`Baby Doll Eyes`, `Sing`, `Lovely Kiss` and ten more would have been
+announced as "Unknown-type". Exactly the failure mode of the abilities
+table earlier the same day, in a different structure.
+
+Fixed by reading the game's own `zokuseiData` table: REL pointer 130 in
+`common.rel`, 0x30 stride, u32 name message ID at +0x08. The shape was not
+invented — `purify_chamber.py` already reads the same table live — and the
+pointer index was located offline by searching every REL pointer for the
+one base whose 18 consecutive records all resolve to short, control-free
+strings; exactly one does, in both images. The game stores battle-UI
+truncations (`FIGHT`, `ELECTR`, `PSYCHC`), so a small expansion map turns
+those into words, **keyed on the game's own text rather than on a type
+index** — which is precisely what stops it becoming the same bug again,
+since a build whose slot 9 says `Fairy` falls straight through.
+
+Vanilla's spoken type names are unchanged in 17 of 18 entries; the only
+move is slot 9, now the game's real `?` instead of the invented "Unknown",
+which no vanilla move reaches. All 18 XG type IDs agree with XG's own
+documentation, none ambiguous. `tests/test_move_type_names.py` adds 10
+tests including a guard that fails if any hardcoded list of type names is
+reintroduced.
+
+Recorded the moves-versus-abilities distinction as normative policy in
+`XG_COMPATIBILITY.md`, since the two diverge in different ways and that
+difference is what decides the required treatment: where a hack can change
+a structure's CONTENTS, read them live or from the player's extraction;
+where it can change a structure's SHAPE, derive the shape from engine
+code. All four defects found today are instances of encoding one build's
+fact as a repository constant.
+
+**Not done:** the type fix is offline-verified only. `menus.py` already
+reads a live `move_record_type_name_offset` pointer but still uses it for
+validation rather than as the announced text; confirming it agrees with
+the derived table is a cheap first-live-run check. Full suite:
+**1,387 passing** (13 new).
+
+— Claude
+
+## 2026-08-12 — Claude: first live XG finding, and the build-specific extraction
+
+The project owner reported that **Metagross's moves were not read in the
+move menu, except Substitute.** First live evidence against XG, and not a
+code defect: the log named it once per poll, `MENU SAMPLE REJECTED:
+move-name disagreement live='Zen Headbutt' local='MEGA PUNCH'`.
+
+The companion was attached to XG while `Companion/_dialogue_extraction`
+was still generated from the **vanilla** disc, so `menus.py`'s two
+readings of the move name — live from the menu record, and from the
+extraction by move ID — disagreed, and it refused to announce. That
+refusal is the safety mechanism working: speaking "Mega Punch" for Zen
+Headbutt is exactly the confident-and-wrong output this project exists to
+avoid. Substitute survived because it is ID 164, one of the 190 slots XG
+leaves alone; Metagross's other moves sit in rewritten slots (Zen
+Headbutt is ID 5, vanilla's Mega Punch). Only 192 of 373 move IDs agree
+between the two extractions, so the symptom was general, not Metagross's.
+
+Battle narration was never affected, and the same log proves why —
+`Metagross used Zen Headbutt!` spoke correctly, because that sentence is
+rendered from live GSmsg text and never consults the extraction. Worth
+recording as the first live confirmation that the message pipeline reads
+XG correctly.
+
+Checked first whether my own type-table change had caused it (the
+hardcoded tuple had 19 entries, the derived table 18): it had not — every
+real move in both builds carries a type ID of 0-17, and the only IDs
+outside the table belong to move slots above 374 that were already
+unresolvable.
+
+Regenerated the extraction from the XG image, after confirming the image
+the owner had moved into the Dolphin folder still hashes to the verified
+`9B232C01`. Verified after: move 1 `Bullet Punch`, 5 `Zen Headbutt`, 118
+`Hammer Arm`, 309 `Meteor Mash`, 164 `Substitute`, type slot 9 `Fairy`.
+
+That regeneration then broke 19 tests, which is worth recording rather
+than quietly papering over. `test_battle_messages.py` deliberately
+asserts against REAL shipped templates instead of sentences typed into
+Python — the right call — but that makes each expectation belong to
+whichever disc produced the extraction, and XG rewrites the dialogue
+("EXP. Points!" becomes "Exp. Points!"). A committed fixture is not
+available, since the templates are copyrighted. So `tests/pinned_build.py`
+fingerprints the installed data by one template's raw bytes and the
+pinned tests skip rather than fail.
+
+The first attempt at that gate was wrong in a way this project has been
+bitten by before: a module-level `setUpModule` skip collapsed all 92
+tests into a **single** skip entry, so the run reported 92 fewer tests
+without saying where they went. Replaced with a decoration applied to
+every TestCase in the module, discovered by iterating the module
+namespace so a class added later cannot be missed. Each test is now
+individually reported as skipped.
+
+**Standing consequence, now documented in `XG_COMPATIBILITY.md` §8: the
+extraction tree is build-specific and there is exactly one of it.**
+Switching between vanilla and XG means regenerating. Legacy files the
+bootstrap does not generate are not refreshed and stay vanilla-derived;
+the only one production reads is `collision_slice/M5_labo_2F.ccd`, used
+by the development-only collision probe.
+
+Suite on an XG install: **1,390 tests, 0 failures, 97 skipped**, every
+skip visible and counted. The skips are a fixture limitation, not a
+product one — the narrator reads whichever build is installed.
+
+**Not done:** the fix is verified offline only. The move menu has not been
+heard reading Metagross correctly since the regeneration.
+
+— Claude
+
+## 2026-08-13 — Claude: the same failure in reverse, and a reason to stop repeating it
+
+The project owner reported Blissey's moves unread in **vanilla**, except
+Fury Cutter. The log gave the mirror image of yesterday:
+
+```
+move-name disagreement live='MINIMIZE'   local='Payback'
+move-name disagreement live='SOFTBOILED' local='Psychic Fangs'
+```
+
+Live text in caps, local text in title case — vanilla running against the
+XG extraction I regenerated yesterday. Fury Cutter survived for the same
+reason Substitute did: one of the 192 move IDs that name the same move in
+both builds. Regenerated from the vanilla disc; `MINIMIZE`, `SOFTBOILED`,
+`SUBSTITUTE`, `FURY CUTTER` all resolve again, 177 collision rooms, type
+slot 9 back to `?`.
+
+Twice in two days, in both directions, is a design signal rather than two
+incidents. The refusal itself is right and stays: announcing the local
+name means saying "MEGA PUNCH" for Zen Headbutt, which is the exact
+failure this project refuses to ship. The defect was that the refusal was
+**silent**, leaving a player with most of a move menu unread, one move
+working, and nothing to act on.
+
+So the disagreement now raises `menus.GameDataMismatch` — a subclass of
+`MenuReadError`, so every existing handler keeps treating it as an
+ordinary rejected sample — and the move reader speaks once per session:
+"Accessibility game data does not match the game that is running, so move
+names cannot be read. Re-run the game data setup against the disc image
+you are playing." Once per session, not per poll: the real log recorded
+it dozens of times a second for as long as the menu was open. Raw move
+names stay in the log; the spoken line carries only the action.
+
+Raised at both sites that compare the two readings (story move menu and
+the VS button panel). `tests/test_game_data_mismatch.py` adds 5 tests.
+`test_name_disagreement_is_suppressed` was updated rather than deleted —
+its real guarantee, that no MENU_FOCUS is emitted, is unchanged and now
+asserted directly instead of via "nothing at all was said".
+
+**Still not done, and the actual fix for the underlying problem:** there
+is one extraction tree, so switching discs means regenerating. Per-build
+trees selected automatically would end this, keyed either by a live
+fingerprint of the running binary or by the launcher's recorded
+`game_image`. The live-fingerprint route needs data loading deferred
+until Dolphin is attached, which today happens before the connection, so
+it is a real restructure rather than a small patch — not something to do
+unannounced. Recorded in `XG_COMPATIBILITY.md` §8.
+
+Full suite on a vanilla install: **1,508 passing**, 0 skipped.
+
+— Claude
+
+## 2026-08-13 (later) — Claude: the companion now identifies the running build itself
+
+The project owner asked for a folder with two launcher scripts, one per
+game. Their `.bat` turned out to only start the narrator — Dolphin and the
+disc are launched separately — so two scripts would have moved the choice
+onto the player rather than removing it, and nothing would have stopped
+clicking the wrong one. Since the game is booted *before* the narrator,
+the answer is already in memory when it starts; it just was not being
+asked for.
+
+Data is now generated one tree per disc,
+`_dialogue_extraction/<GAMEID>-<fingerprint>/`, each stamped with a
+`build_id.json`. `phase1b_app.resolve_data_root` fingerprints the running
+game and loads the matching tree. Generating from a second disc adds a
+tree instead of overwriting the first.
+
+**Finding the fingerprint took four rejected candidates, each measured
+rather than reasoned about, and the failures are the useful part:**
+
+* The disc label and all 8 engine signatures are identical across both
+  builds — already known, restated because they are the obvious first
+  guesses.
+* Dolphin's config records the game-list folder, not what is booted.
+* The `main.dol` string tables looked ideal (they *are* the text the data
+  provides) but are rewritten in place at load — relative offsets become
+  pointers — so live bytes match neither disc.
+* Hashing a whole code section fails too: **live `text1` matches neither
+  disc**, because the game patches four of its own pages at runtime.
+
+Exactly 4 of `text1`'s 740 pages are written after load, clustered at
+448-457. Thirty-two evenly spaced 4 KB samples step over the cluster,
+match the disc byte for byte, and separate the builds — vanilla
+`8FF9D518`, XG `7BB1937C`. The count is pinned by measurement: 64 samples
+land on page 451 and match nothing, and there is a test asserting the
+sampling never touches a known runtime-written page. Verified live
+against the running vanilla game: offline stamp and live fingerprint
+agree, and selection chose the vanilla tree unattended.
+
+Selection never guesses — an unrecognised build selects nothing and is
+reported, since guessing would restore the silent-wrong-data failure the
+whole exercise is about. With Dolphin not yet running the fingerprint
+cannot be taken and it falls back to the single installed tree, which is
+the behaviour that existed before, with yesterday's spoken mismatch
+warning still catching a wrong pairing.
+
+`rooms/` (424 disassembled room scripts) and `collision_slice/` were
+hand-made in earlier sessions from a third-party disassembler and are not
+regenerable from a disc, so a fresh tree cannot contain them.
+
+The project owner then asked to keep Gateon Port's bridges working from
+vanilla data on XG. Rather than take that on trust, the two discs were
+compared: XG recompressed `M6_out.fsys` so 1,467,912 of its 1,485,632
+bytes differ, but **every decoded entry inside is byte-identical** —
+collision geometry and room script both. Sharing it is therefore not a
+compromise at all, and `shared/rooms/M6_out.txt` says so with the
+evidence in the docstring. `phase1b_app.shared_or_local` resolves the
+build's own tree first and falls back to `shared/`, so a real per-build
+copy dropped in later wins without a code change.
+
+Deliberately narrow: only that one file is shared. The rest of `rooms/`
+stays vanilla-only because its other consumer derives room→service from
+scripts XG is free to have rewritten, and nothing establishes it did not;
+`collision_slice/` stays vanilla-only and its development-only probe just
+stays off on XG.
+
+`tests/pinned_build.py` now *searches* for the vanilla tree instead of
+assuming the default path, so the build-pinned message tests keep working
+whatever the player has installed.
+
+Full suite: **1,526 passing**, 0 failures, 0 skipped (19 new).
+
+**Not done:** no live run against XG since the change — vanilla selection
+is live-verified, XG selection is verified only from its stamp and its
+offline fingerprint agreeing.
+
+— Claude
+
+## 2026-08-13 (later still) — Claude: two faults the per-build switch exposed on first real launch
+
+The project owner reported the launcher crashing. Detection itself was
+fine — the log shows `GAME DATA GXXE01-7BB1937C (matched POKeMON XD
+[7BB1937C])`, which is also the first live confirmation that **XG
+selection works**. Two other things broke, both of them mine.
+
+**1. A required file no bootstrap had ever produced.** Startup aborted
+with "Local M3_houseD_1F.fsys data is missing". The Name Rater's dialogue
+is owned by its own room archive (message 50803 lives there and nowhere
+else), and that archive had only ever been hand-extracted into the single
+flat tree an earlier session produced. Generated trees never had it; the
+old flat tree hid that for as long as it was the only tree. Added to the
+bootstrap's optional archives (destination `rooms/files`) so every build
+gets its own copy — it must be per-build, since it is dialogue and a hack
+is free to rewrite it — and made its absence non-fatal, because one
+screen's text disappearing must not stop the narrator from starting.
+Notably the other 273 archives in that folder are unread leftovers; only
+this one was load-bearing.
+
+**2. Startup order silently decided which data loaded.** The second
+launch selected the *unstamped* flat tree. Diagnosed live: Dolphin was
+running but no game was booted (`is_hooked` false, status 2), so no
+fingerprint could be taken and it fell through to the leftover vanilla
+tree — which, had XG then been booted, is precisely the mismatch this
+whole effort exists to prevent. Telling the owner "boot the game first"
+would have been a workaround, not a fix, and would have put the ordering
+burden back on them after they had asked for one thing that just works.
+
+`wait_for_booted_game` now blocks at startup until Dolphin has a disc
+loaded (120s, then proceeds unidentified), and the wait is *announced* —
+a blind player given a frozen launcher cannot distinguish waiting from
+hung. The call sits after `speaker.open()` so it can speak, and before
+any table is opened. Verified live: with Dolphin open at its game list
+the narrator now says "Waiting for the game to start" instead of loading
+the wrong tables.
+
+Six new tests cover the wait, including the exact misfiring state (hooked
+Dolphin, all-zero disc header), an unreachable Dolphin, the announcement
+firing once rather than per second, and giving up rather than blocking
+forever. Full suite: **1,532 passing**, 0 failures, 0 skipped.
+
+— Claude
+
+## 2026-08-13 — Claude: the pause menu hides entries, and the labels did not know
+
+The project owner reported the start menu reading wrong before obtaining
+the P*DA, and confirmed what is on screen: "its everything but pda.
+pokemon items save exit". So the game DROPS the entry rather than greying
+it, and `pause_menu_labels` -- five names indexed by a four-row cursor --
+named P*DA on the Items row, Items on Save, and so on. Nothing crashed;
+it simply lied, which for this project is the worse outcome. Same shape
+as the abilities table and the move-type list: a constant in this
+repository standing in for something the game owns.
+
+The game keeps the mapping and does not need to be guessed at. `menuTop`
+(0x8002F718) walks five candidate entries, tests each with
+`menuItemBiosGetSelectFlag`, and for the visible ones calls
+`menuTitleSetSelect(row, candidate)`, which stores a s16 at
+`_menuTitleWork+0x40` indexed by row*2 (`sth r4, 0x40(r3)` at
+0x800A31BC, read back by `menuTitleGetSelect` with `lha`).
+`_menuTitleWork` resolves to 0x8043D2A8, so the table is 0x8043D2E8.
+Live-confirmed on the owner's own save, which owns the P*DA: the table
+reads (0, 1, 2, 3, 4) -- identity, exactly right when nothing is hidden.
+It lives in .bss, whose placement is identical in both builds.
+
+`PartyActionMenuReader` gained an optional `entry_map`; without one it
+uses the row as before, so the party-action popup, bag tabs and stone
+list are untouched. An entry outside the known set is not announced at
+all -- naming the wrong option is worse than silence when the player is
+about to press A on it. Seven new tests, including the four-row pre-P*DA
+mapping row by row and a guard that the old row-indexed behaviour would
+fail. Full suite: **1,539 passing**, 0 failures, 0 skipped.
+
+**Also recorded, because it cost the owner a session:** the "crash" they
+reported alongside this was not one. The log shows no exception and
+normal narration up to the moment it stopped; I had killed it myself,
+with a `Stop-Process` matching every `run_battle_narrator` process while
+cleaning up my own test instances. Diagnostic process kills must be
+scoped to the PIDs this session started.
+
+— Claude
+
+## Region-aware routing and the retirement of distance-based acceptance (2026-08-12)
+
+Implemented by **Claude (Opus 5)** at the project owner's direction, over a
+sequence of measurement passes they specified: a split audit of old versus
+bounded behaviour, a bucket-3 validation, and a C-band local-connectivity
+resolution. The production change was made only after those measurements
+ruled out every distance-based rule.
+
+Builds directly on `region_geometry.py` (2026-08-10), which already kept
+interaction regions as areas and announced their nearest point -- that work
+is not Claude's and was reused rather than reimplemented.
+
+Two of Claude's own intermediate conclusions were measured and discarded
+before shipping: a 16-unit region-distance ceiling (which would still have
+misled the player 79% of the time it accepted) and a "can the beacon walk
+the rest" hand-off test (near-tautological, since a reseed only ever happens
+when the destination is unreachable).
+
+---
+
+## 2026-08-13 — Live collision-object enable state
+
+**Claude (Anthropic).** Investigation opened by the project owner's
+observation that "the relic cave in agate village is elusive to the
+navigation system".
+
+Two of Claude's own hypotheses were tested and **refuted by measurement**
+before the real cause was found, and both are recorded because each looked
+right:
+
+1. **The swept test's longest-XZ-edge approximation was overstating the
+   triangles.** The approximation is real and documented, but it is not the
+   cause: an exact segment-to-triangle distance agrees with it on **22 of 22**
+   of the `M3_out` pocket's wall-blocked boundary edges (`approx=0.000,
+   true=0.000` throughout). The walls are genuine geometry.
+2. **`collision_type` might mark non-blocking triangles** (trigger volumes,
+   camera collision). Already refuted by the 2026-08-04 measurement pass
+   (types 0–7 all occur; closest approach to *every* type is the same ~3.5),
+   and Claude found that prior work rather than re-deriving it.
+
+The actual cause is that `StaticObjectEnableState` reports every CCD object
+enabled, so `build_room_geometry` **rebuilds walls the running game has
+switched off**. Six triangles across two rooms are the whole Relic cave
+defect: `M3_out` object 33 (2 triangles, 26-tile pocket → 1861-node component
+when dropped) and `M3_cave_1F_1` objects 4 and 5 (4 triangles; entrance
+reaches 85 nodes → 205, and the route to the shrine exit stops being 180.4
+units short).
+
+**Owner-set constraints that shaped the result.** The instruction was
+explicit: no hardcoded cave object indices, no story-flag overrides, and
+"do not trust the previously suspected `0x80445C20` interpretation merely
+because documentation mentions it — read the actual function disassembly and
+derive the structure again." Doing so found the earlier note incomplete in
+four ways that matter (record base `+0x04` not `+0x00`; capacity 64; identity
+index mapping; one record shared by the walk and hit slots) — and the wrong
+base explains the earlier live probe that "returned mapped memory but a byte
+pattern that did not clearly match".
+
+**Live-validated later the same day.** The implementation was written and
+shipped while Dolphin was *not* running, and was reported at the time as
+unvalidated against live memory. The project owner then ran it, and the log
+settled it: object 33 reported disabled, wall triangles fell 1097 → 1095, and
+the cave pocket became the **1861**-node component — a figure derived
+statically from the `.ccd` before the game was ever started, reproduced
+exactly by the live flood. The `cause=disconnected` and partial-route
+failures stop at that timestamp and do not recur.
+
+Worth recording for method: the prediction was made first, in a form that
+could have been wrong in an obvious way, and then checked. Gateon remains
+worth running as a second oracle because it is the only room that toggles
+objects **mid-session**, which Agate does not exercise.
+
+The address is nonetheless verified rather than assumed: a new
+`engine_signatures` entry pins `GScolsys2GetObjEnable` at `0x80117BAC`, whose
+first four instructions encode the global's address, and those bytes were
+matched against the shipped `orig/GXXE01/sys/main.dol` at file offset
+`0x114B0C`.
+
+**Prior work this rests on.** The `ObjectEnableState` interface and
+`build_room_geometry`'s `enable_state` hook already existed (Phase 5,
+2026-08-01) — that earlier decision to isolate the gap behind one small
+interface is why this was a one-class substitution rather than a call-site
+rewrite. The `entry_index` carried on every triangle, and
+`bridge_connections.py`'s identification of `UnknownClass46::16` as the
+script-level `SetObjEnable` with its `(enable, objectIndex)` argument order,
+were both load-bearing and both pre-existing.
+
+### Follow-on: region-target rebuild churn
+
+The live log that confirmed the enable-state fix also exposed an unrelated
+defect in the same window. Guiding to the Relic cave, `NavigationService`
+rebuilt a 1861-node route **five times in seven seconds**.
+
+Traced from the log alone before any code was read: every build's
+`target_pos.x` equalled that poll's `start_pos.x` exactly, with `target_pos.z`
+pinned at `-23.86`. The cave's trigger volume has a long edge at that z and
+the player was walking parallel to it, so `Region.nearest_point` returned
+`(player.x, -23.86)` every poll and `MOVING_TARGET_REBUILD_DISTANCE` (8.0)
+was crossed on every 8 units walked.
+
+The waste was the lesser problem. Reprojecting the sliding point picked a
+different *surface* at different x — at `x=-38.04` the nearest floor beneath
+`(x, -23.86)` is the clifftop (`y=120.00`, 1637 nodes, "8 units away, 2
+waypoints"); at `x=-27.97` it is the cave floor below (`y=-5.04`, 1861 nodes,
+"686 units away, 30 waypoints"). The guide alternated between those two
+answers for a destination that never changed.
+
+Fix: separate the destination's **identity** (the trigger volume) from the
+**spoken point** (still slides, still updates) and from the route's **arrival
+set** (already region-derived — `destination_target_tiles` never read the
+sliding point at all). `_region_component_key` supplies the identity, and
+drift no longer applies within one volume. Point destinations — a walking NPC
+— keep the ordinary drift rule untouched.
+
+Measured by replaying the five real logged positions against the real
+`M3_out` regions and geometry: **11 builds / 8.700 s → 1 build / 0.897 s**
+over ten seconds, seed tiles 4 → 1, and the 1637↔1861 field-size flip gone.
+The progress failure in the same session (05:46:16) was checked separately
+and is unrelated — three minutes earlier, a genuine 162-unit displacement
+without approach.
+
+
+## Autowalk (2026-08-16)
+
+The project owner asked what it would take to build autowalk, "using the
+navigation system or by itself" — a question, not yet an instruction, and
+one aimed at a feature this project had already recorded as **rejected**
+(ACCESSIBILITY_BACKLOG.md, "Deferred ideas": autowalk means sending input,
+which the audio guide deliberately avoids).
+
+The investigation is what changed the answer. Rather than costing out the
+three obvious input paths (synthetic keyboard, a virtual gamepad driver, or
+racing `GSinputRead`'s per-frame memcpy of the controller cache), I read
+`heroMove.s` and found the premise behind the rejection was false: the game
+carries its own scripted-stick override. `_getStickData` (0x8014E7F8) tests
+`HeroMove+0x3AE` before it consults the controller at all, and
+`_heroMoveSlowStopFactor` (0x8014EDF4) is the engine using that path on
+itself to decelerate the hero. So autowalk does not have to send input —
+it writes five bytes the game already reads, and ordinary locomotion does
+the walking.
+
+The project owner then reversed the rejection explicitly ("you may void the
+read only philosophy for this time"), specified `ctrl+w` for the toggle and
+"any of the movement keys" to cancel, and asked for two unrelated hotkey
+changes in the same breath. One of those, `ctrl+p`, does not exist anywhere
+in the project; I asked rather than guessing, and the answer was to leave it
+alone and delete the Lab 2F collision-probe diagnostic that held `ctrl+w`.
+
+Design decisions that were mine, not directed:
+
+- **Its own `NavigationService`.** A service owns one active route, so
+  sharing the guide's instance would have made each feature silently
+  retarget and clear the other's.
+- **`DIRECT_FALLBACK` is a refusal.** Straight-line guidance is useful to a
+  person who can feel their way around a wall; handed to a stick it is an
+  instruction to walk into it. `PARTIAL` is accepted, but only with its
+  measured shortfall spoken first.
+- **`is_movement_requested()` as a new method** rather than widening
+  `is_direction_held()`, which is live-tuned for `BlockedMovementReader`'s
+  different question and should not inherit autowalk's need to over-report.
+- **The settle grace.** The player may still be holding the key they were
+  walking with when they pressed the chord, so the abort arms on the first
+  poll with no input, or when the grace expires — whichever comes first.
+- **A feature-local signature check** rather than another entry in
+  `profile.engine_signatures`: a build where these bytes differ should lose
+  autowalk, not lose the entire narrator.
+
+What was NOT done, and is stated as plainly in the coverage matrix: none of
+this has moved a character. The addresses were read on a live GXXE01 process
+but the emulator was paused, so the mechanism is established statically and
+by 39 regression tests, and not at all behaviourally.
+`Companion/_probe_hero_stick.py` exists to close that gap in two steps, the
+first of which is read-only.
+
+## Settings menu (2026-08-16)
+
+**Claude.** Directed: "create a settings menu using f1 as the hotkey to open
+it, arrow keys to navigate through it, and 'h' to jump by headings for the
+different categories." The keys were specified; everything else below was a
+decision, and three of them were put back to the project owner before being
+made.
+
+**What I asked rather than assumed.** Reading their actual Dolphin
+configuration first — `Config/Hotkeys.ini` and `Config/GCPadNew.ini`, not
+the project's own files — showed all three requested keys were already
+taken: F1 is Load State Slot 1, the arrows are the main stick, H is D-pad
+right, Return is Start. So the feature could not be built the way every
+other hotkey in this project is built, and I said so before writing any of
+it. The owner chose "swallow the keys" over two weaker options, chose all
+four setting categories, and chose persistence to `companion_settings.json`.
+
+**The one genuinely new mechanism: `key_capture.py`.** Every existing hotkey
+is a modifier chord read by polling `GetAsyncKeyState`. Polling *observes*;
+it cannot stop Dolphin acting on the same press, which is fine for `ctrl+g`
+and useless for F1. This installs a `WH_KEYBOARD_LL` hook, which sees each
+event before the foreground application and can consume it. **This is the
+first thing in the project that takes input away from the game**, and the
+inverse of `teleport.py`/`autowalk.py`'s authorized writes: it sends
+nothing, it withholds. Bounded four ways — only keys in `MenuKeyPolicy`,
+only while Dolphin has focus, only F1 outside the menu, and
+`--no-settings-menu` removes the hook entirely.
+
+Decisions inside it that were mine:
+
+- **A dedicated message-pumping thread.** Windows silently removes a hook
+  whose callback exceeds `LowLevelHooksTimeout` (300 ms), and the poll loop
+  sleeps up to 500 ms between ticks with memory reads and pathfinding in
+  between. The callback classifies and appends to a deque; everything slow
+  happens later on the poll thread.
+- **Key-up is swallowed with key-down.** Letting an up through alone leaves
+  DirectInput holding a key it never saw pressed — a swallowed arrow would
+  become a stuck walk.
+- **`MenuKeyPolicy` split out from the hook**, so the rule with actual
+  consequences for someone's game is testable without installing anything.
+
+**Model and presentation split** (`settings.py` / `settings_menu.py`). Values
+live in the store and are pushed into readers, never held by them, so a
+Dolphin reattach — which discards every reader — cannot lose a preference.
+On/off toggles are the exception and are *not* applied: they are read at
+poll time by `LifecycleController._feature_enabled`, because applying "off"
+by tearing a reader down would make the toggle a one-way door on anything
+with expensive setup. Defaults are read from the constants the features
+already use, three of which (`PASSIVE_BEACON_GAIN_SCALE`,
+`PASSIVE_BEACON_CATEGORY_GAIN`, `TerrainTonePlayer.STEP_GAIN`) carry comments
+from earlier sessions saying they were named *for* this UI. The frozen
+profile is never mutated.
+
+**Navigation follows NVDA, not a game menu.** H/Shift+H are browse-mode
+heading jumps, including the detail that Shift+H from mid-category lands on
+the current heading first. Item movement stops at the ends and says so
+rather than wrapping — wrapping is right for entity-nav's ring of live
+entities and wrong for a list that has a real end.
+
+**Two files outside the feature had to change**, both because the settings
+file gained a second writer: `setup_companion.write_settings` now merges
+instead of overwriting (re-running Setup would otherwise reset volumes tuned
+by ear), and `launch_accessible.py` now checks for the *paths* Setup records
+rather than for the file's existence (the menu can create the file first,
+which would have turned "Run Setup.cmd first" into "Dolphin is no longer at
+.").
+
+**A pre-existing defect found while re-binding autowalk.** Later the same
+day the owner asked to move autowalk from `ctrl+w` to `ctrl+shift+/`. That
+chord belonged to entity-nav's refresh — and the collision showed refresh had
+never once run in production. `WindowsForegroundHotkey._pressed` tested only
+that every key in its chord was *down*, so `ctrl+slash` (repeat) matched
+every `ctrl+shift+slash` press too, and `poll_once` checks repeat first in
+the same `elif` chain. It had been that way since refresh was added on
+2026-07-28. Its four tests passed throughout because they drive fake hotkey
+objects, so nothing ever exercised chord matching. Fixed by requiring a
+chord's *unnamed* modifiers to be up — a chord now means exactly itself,
+which also makes `ctrl+shift+.`/`ctrl+shift+,` genuinely distinct from
+`ctrl+.`/`ctrl+,` instead of relying on `elif` ordering. Told what refresh
+had been for, the owner removed it rather than rehoming it; `ctrl+w` is left
+unbound on the reasoning that a key which has meant "walk me there" should
+go quiet rather than start doing something else. `RefreshTests` became
+`RefreshRemovalTests`, which asserts the replacement path (re-activating a
+category re-reads the live list) actually works rather than assuming it.
+
+**What was NOT done.** Nobody has pressed F1 with a game running. The claim
+the whole feature rests on — that swallowing at the hook stops Dolphin's
+DirectInput from seeing the key — is a mechanism argument, and this project
+does not count those as verified. The volumes and distances have not been
+listened to either. Both gaps are stated in the coverage matrix and in
+SETTINGS_MENU.md §7, with a five-step procedure. 80 new tests; full suite
+1688 with the two pre-existing `test_passability.DestinationProjectionTests`
+failures that reproduce without any of this.
+
+
+## 2026-08-17 — MASTER.md, and the documents it caught out (Claude)
+
+Asked to review everything implemented and documented, produce a single
+feature document, and bring the other documents into line with it.
+
+**New: [MASTER.md](MASTER.md).** One map of the whole system — every
+feature, the module that owns it, how it is verified, what is open — with
+links into the detailed document for each area. Deliberately NOT a second
+copy of the coverage matrix: that stays authoritative for per-screen
+status and this stays a map, which is stated at the top of it so the two
+cannot quietly compete. Every one of its 35 document links and every
+module and tool path it names was checked to resolve, because a map with
+dead links is worse than no map.
+
+**What writing it caught.** Three things were stale or missing, all of
+them the kind of drift that only shows up when something forces a full
+pass:
+
+1. **The coverage matrix still said distribution was research-only** --
+   "`DISTRIBUTION_PIPELINE.md` exists as research; nothing packaged" and
+   "no end-user guide exists" -- a week after both shipped. Both rows
+   rewritten with what actually exists, what it was verified against
+   (189 files byte-identical; every loader constructed from a fresh
+   extraction), and the real remaining gap, which is that no built
+   release has ever been run live on a machine other than this one.
+
+2. **`check_image_compatibility.py` was not in the release allowlist.**
+   It answers the compatibility question from a disc *file*, before the
+   game is booted -- exactly what a recipient needs when Setup rejects
+   their image, and exactly when they cannot get as far as a running
+   Dolphin to use `check_game_compatibility.py`. Added to the builder and
+   the manifest; archive rebuilt and verified.
+
+3. **MASTER.md's own first draft had the old hotkeys.** The `shift`
+   modifiers were dropped from the guide, teleport, HP, Heart Gauge and
+   money keys on 2026-08-16 and I wrote the table from memory of the
+   pre-change values. Caught by checking `profile.py` rather than
+   trusting the draft. The user-facing `README.md` had already been
+   updated correctly by the concurrent session, so only MASTER.md needed
+   the fix -- but the same hand-maintained table is the one place that
+   can drift from `profile.py`, and the matrix now records that as the
+   documentation row's one known weakness, with the fix (generate it from
+   `hotkey_reference()`, the way the in-app list already is) noted.
+
+**Not changed, deliberately.** The two failing tests in
+`tests/test_passability.py` (`DestinationProjectionTests`: a cross-level
+target gets no guidance, and partial guidance routes to a floor above the
+target) belong to the region-routing work in flight since 2026-08-12.
+They are recorded in MASTER.md §12 and left alone -- editing another
+session's half-finished work while it is still being written would only
+create a conflict. Suite: **1,695 tests, 2 failing**, both those.
+
+Nothing committed this pass, for the same reason: the tree holds a second
+session's in-progress changes.
+
+— Claude
+
+## Trigger avoidance in routing (2026-08-17)
+
+The project owner ran autowalk for the first time and reported it in one
+line: "while trying to go to the world map, i go to the parts shop." The
+diagnosis came from their log plus the shipped collision data, not from
+guessing -- the logged waypoint sequence measured 0.69 units from warp
+region 7's trigger curtain, and `common.rel` record 727 identifies that
+region as the door to room 0x97, the parts shop.
+
+Two things about this were mine to get right and worth recording.
+
+**The premise had to be checked before the fix.** It would have been easy
+to treat every interaction region as a barrier, and that is wrong: the
+Relic Stone cave doorway is an interaction region the player MUST walk into,
+which is why `interaction_volume_keys` exists to stop routing rebuilding it
+as a wall. The predicate that actually matters is "does crossing this move
+me to another room", which only the warp records answer -- so the fix reads
+the same authoritative `common.rel` records the "Exits" category already
+uses, rather than inventing a new notion of doorway.
+
+**The first implementation was wrong and the measurement caught it, not a
+test.** Blocking whole tiles that a trigger touched cut `M6_out`'s reachable
+component from 23,488 tiles to 1,961 -- Gateon Port's doors sit in narrow
+gaps, and an 8-unit lattice swallows the gap with the door. That number is
+why the shipped version refuses the crossing instead of the tile, and why
+the regression suite asserts all ten of the room's exits still route rather
+than merely asserting the parts-shop route changed.
+
+Stated plainly, because it bounds what the fix is known to do: the exact
+live route cannot be replayed offline, since it was built against the
+engine's live object-enable state in the one room whose piers toggle. The
+defect reproduces from the same data on a different destination in the same
+room (region 11), and that is what the tests pin. Whether autowalk now
+reaches the world-map exit at Gateon Port is a live question, still open.

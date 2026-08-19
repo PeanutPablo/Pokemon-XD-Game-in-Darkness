@@ -451,6 +451,21 @@ class MessageRenderer:
             text = None
         return Rendering(message_id, text, seen, unresolved, subjects)
 
+    def render_bytes(self, raw):
+        """Render one already-located GSchar page through live msgvars."""
+        rendered, seen, unresolved, subjects = self._decode(bytes(raw), 0)
+        text = " ".join(rendered.split()).strip()
+        if text.startswith(": "):
+            text = text[2:].strip()
+        if text and is_double_encoded(text):
+            unresolved = list(unresolved) + [
+                (None, "rendered text carries a double-encoding signature")]
+        if not text:
+            unresolved = list(unresolved) + [(None, "rendered text is empty")]
+        if unresolved:
+            text = None
+        return Rendering(None, text, seen, unresolved, subjects)
+
     def text(self, message_id):
         """Speech-ready text, or None when the message cannot be rendered
         completely. Kept for callers that only need the happy path."""

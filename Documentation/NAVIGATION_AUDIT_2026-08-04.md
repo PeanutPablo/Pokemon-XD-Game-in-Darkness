@@ -494,6 +494,84 @@ needed, per waypoint change and per poll where the aim moves:
 Until that exists, any further theory of this symptom is guesswork that
 costs a build-and-revert cycle to test.
 
+## 6h. THE ROUTER IS NOW TRUTHFUL: connectivity, not distance (2026-08-12)
+
+The §6.2/§6.3 work above bounded the reachability fallback at 64 units. Two
+further audits killed that idea and replaced it.
+
+### The split audit — how much of the old behaviour was misleading
+
+Reproducing the pre-bound rule offline over all **3230** interaction-point
+pairs:
+
+| | |
+|---|---|
+| previously false-routed | **1070** |
+| always failed | 0 |
+| resolve/projection failure | 14 |
+
+`always failed = 0` is the finding, not a clean bill: **the old fallback
+never failed.** It took the nearest reachable node with no ceiling, and the
+player's own field is never empty, so it always returned something. There
+was no such thing as an honest refusal on that path.
+
+Not one of the 1070 ended within 32 units of where it claimed to go —
+median **135.4**, max **1678.2**, closest miss **59.0**. And **190 had zero
+hops**: the guide announced a walkable route and pointed at the tile the
+player was already standing on, up to 1546 units from the target.
+
+### Bucket 3 — the accepted routes were no better
+
+Of the 2024 routes the 64-unit bound *accepted*, measured against each
+destination's real interaction region:
+
+| distance to region | useful / total |
+|---|---|
+| ≤4 | 103 / 103 (100%) |
+| 4–8 | 46 / 480 (9.6%) |
+| 8–16 | 54 / 478 (11.3%) |
+| 16–32 | 22 / 440 (5.0%) |
+| >32 | 40 / 523 (7.6%) |
+
+**265 of 2024 (13.1%) were locally useful; 1759 were on the far side of a
+wall.** Above the real 4-unit arrival radius, distance carries no signal —
+the >32 band scores better than 16–32. In the 8–32 marginal band, 842 of 918
+were locally disconnected, and the blocker was a **wall in 837 of them**.
+
+Every candidate ceiling — 16, 32 or 64 units, measured to the anchor or to
+the region — misled the player in **79–87%** of the routes it accepted.
+
+### What replaced it
+
+`REACHABILITY_FALLBACK_MAX_OFFSET` is **deleted**. A reseed is accepted only
+when an ordinary walkable path reaches the destination's own arrival tiles —
+the region's triangles for a region-backed destination
+(`region_geometry.Region`, already in production since 2026-08-10), or the
+tiles within the real `ARRIVAL_RADIUS` for a point destination. Same walk
+layers, wall tests, collision radius, corner rules and floor support as the
+flood fill; no second projection underneath. The field is then re-seeded on
+that arrival tile, so the accepted route is continuous into the region
+rather than ending short and hoping the beacon covers it.
+
+Tile intersection, not proximity, decides what counts as an arrival tile.
+The lattice is 8 units and a node sits up to ~5.7 units from a given point
+in its tile, so a 4-unit proximity test reported **zero** reachable nodes
+touching the cave region the player was standing in; tile intersection
+correctly identifies the two cave regions that genuinely connect.
+
+### Garage — investigated, not exempted
+
+Both `D1_garage_1F` basement warps now **refuse**. This room's walk model has
+no surface beneath either region and no reachable node shares a tile with
+them: they are the stairs to another floor. The old rule "worked" by guiding
+70 units to a spot by the south wall and reporting `VERIFIED`. The room's
+in-room region still routes. No room is special-cased.
+
+### Cave — preserved as the canonical regression
+
+`M3_cave_1F_1` still refuses toward the shrine exit with `cause=disconnected`,
+and the pair that genuinely connects (regions 1↔2) still routes.
+
 ## 7. Explicitly not established
 
 - Whether 61 nodes is the right answer for `D1_labo_B3`, or merely a better

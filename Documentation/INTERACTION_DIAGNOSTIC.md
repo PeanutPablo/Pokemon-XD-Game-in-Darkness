@@ -37,10 +37,10 @@ A so the prediction can be scored against the real outcome.
 python Companion/run_battle_narrator.py --interaction-diagnostics
 ```
 
-Marker hotkey defaults to `ctrl+shift+k` (`--interaction-mark-hotkey`).
+Marker hotkey defaults to `ctrl+k` (`--interaction-mark-hotkey`).
 Deliberately not an entity-nav chord: it has to be pressable immediately
 before or after A without disturbing the selection being measured.
-`ctrl+shift+m` was the obvious choice and is already the money summary.
+`ctrl+m` was the obvious choice and is already the money summary.
 
 ## What a sample records
 

@@ -57,9 +57,21 @@ class AddressProfile:
         # save-data section table
         ("savedataGetStatus", 0x801CEFB4,
          bytes.fromhex("9421fff07c0802a6900100145480043e")),
+        # collision-object enable state. These four instructions ARE the
+        # `gscolsys2` address below: `lis r5, GScolsys2@ha` carries 0x8044 and
+        # `addi r6, r5, GScolsys2@l` carries 0x5C20, so a build that moved the
+        # global fails this signature rather than silently reading whatever
+        # now sits at 0x80445C20 and reporting its low bits as walls.
+        ("GScolsys2GetObjEnable", 0x80117BAC,
+         bytes.fromhex("3ca0804438c55c2080a6000028050000")),
     )
     mem1_start: int = 0x80000000
     mem1_end: int = 0x81800000
+    gscolsys2: int = 0x80445C20
+    """`GScolsys2` -- the collision system's own global, holding which CCD
+    objects the engine currently considers. Verified by the
+    `GScolsys2GetObjEnable` signature above, which encodes this exact value.
+    See `collision_object_enable.py` for the structure."""
     manager_root: int = 0x804E8348
     attack_mons: int = 0x804EB1FC
     defence_mons: int = 0x804EB200
@@ -236,6 +248,10 @@ class AddressProfile:
     title_press_start_status: int = 32
     title_main_menu_status: int = 41
     title_notification_statuses: tuple = (32, 200)
+    # These DOL-table save strings also run during normal gameplay.
+    global_save_prompt_message_ids: frozenset = frozenset({15346, 15347})
+    global_save_notification_message_ids: frozenset = frozenset({144, 145})
+    continue_confirmation_message_id: int = 17134
     title_option_menu_id: int = 279
     title_option_labels: tuple = ("Sound", "Rumble", "Exit")
     new_game_confirmation_parent_ids: tuple = (17, 51)
@@ -383,7 +399,15 @@ class AddressProfile:
     # RuntimeMessageCatalog.
     progress_notification_message_ids: frozenset = frozenset({
         16001, 16002,
+        # Party held-item results from pocket_menu.fsys.  The preceding
+        # 15050 switch prompt is owned by the reusable Yes/No reader;
+        # these are the non-choice result/information windows it cannot
+        # see.
+        15051, 15052, 15053, 15054, 15055, 15056,
         50023,
+        # TM/HM startup and the contained-move prompt.  XG renders these
+        # through GSmsg rather than the ordinary dialogue page buffer.
+        50037, 50038, 50039,
         50201, 50202, 50203,
         50459,
         50502, 50503, 50504, 50505, 50506, 50507, 50508, 50509, 50510, 50511,
@@ -405,7 +429,11 @@ class AddressProfile:
     name_keyboard_column_address: int = 0x804EA7A4
     name_keyboard_row_address: int = 0x804EA7A8
     name_input_address: int = 0x80429794
-    name_input_maximum: int = 7
+    # Player names stop at 7, but this same keyboard/buffer is reused by the
+    # Name Rater for Pokemon nicknames, whose live struct allows 10 visible
+    # characters. Reading only 7 made a successfully entered eighth-or-later
+    # character look as though the key had done nothing.
+    name_input_maximum: int = 10
     name_keyboard_labels: tuple = (
         "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
         "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
@@ -583,7 +611,7 @@ class AddressProfile:
     valid_major_conditions: tuple = (0, 3, 4, 5, 6, 7, 8)
     # Live-confirmed active-battler order: player 1, player 2, opponent 1, opponent 2.
     #
-    # RETAINED FOR THE Ctrl+Shift+H SUMMARY'S SPEAKING ORDER ONLY. It is no
+    # RETAINED FOR THE Ctrl+H SUMMARY'S SPEAKING ORDER ONLY. It is no
     # longer the source of truth for which SIDE a battler belongs to: the
     # 2026-07-25 handoff recorded the opposite interleaving ("player 0,
     # opponent 1, player 2, opponent 3"), and a positional tuple cannot be
@@ -632,16 +660,29 @@ class AddressProfile:
     # health_stable_samples so the two cannot disagree about when a
     # replacement has finished.
     identity_stable_samples: int = 2
-    default_hp_summary_hotkey: str = "ctrl+shift+h"
+    default_hp_summary_hotkey: str = "ctrl+h"
     # On-demand Shadow Pokemon Heart Gauge check (party.py's
     # heart_gauge_percent) -- usable anywhere in the overworld, not just
     # battle, per the project owner's explicit "both" request (Summary
     # screen narration + a dedicated hotkey), 2026-07-30.
-    default_heart_gauge_hotkey: str = "ctrl+shift+j"
+    # Moved from ctrl+j to ctrl+s on 2026-08-16 at the project owner's
+    # request. Nothing else claims ctrl+s -- every default lives in this
+    # file, so check both this block and the entity-navigation block below
+    # before assigning another.
+    default_heart_gauge_hotkey: str = "ctrl+s"
+    # One chord per party slot (Ctrl+1 .. Ctrl+6): speaks that slot's
+    # nickname, level, HP, status, Heart Gauge and held item
+    # without opening a single menu -- the project owner's explicit
+    # request, 2026-08-18. Digits were free: every other default in this
+    # file is a letter or punctuation, and Dolphin's own stock bindings
+    # put save states on the function keys, not on Ctrl+digit.
+    default_party_slot_hotkeys: tuple = (
+        "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6",
+    )
     # On-demand Pokédollar balance check, usable anywhere in the overworld
     # -- project owner's explicit request, 2026-07-30, during the shop
     # accessibility work.
-    default_money_hotkey: str = "ctrl+shift+m"
+    default_money_hotkey: str = "ctrl+m"
     # Overworld party roster (Hero.partyPokemon[6], NOT the FightPokemon
     # battle-wrapper struct -- these offsets are relative directly to the
     # raw Pokemon struct start, matching xd-decomp's pokemon.hpp layout).
@@ -714,6 +755,12 @@ class AddressProfile:
     # InitDarkPoint toward 0, and 0 means "fully open, ready to purify".
     darkpokemon_array_savedata_offset: int = 0xE380
     dark_pokemon_stride: int = 0x48
+    # Byte 0 contains independent lifecycle flags, least-significant bit
+    # first: bit 5 encountered, bit 6 caught, bit 7 purified. This is not a
+    # low-three-bit enum. A caught, purified record commonly reads 0xE0.
+    # The Pokemon's dark-data ID can remain nonzero after purification.
+    dark_pokemon_flags_offset: int = 0x00
+    dark_pokemon_purified_flag: int = 0x80
     dark_point_direct_offset: int = 0x24
     # Additional fields cross-checked directly against xd-decomp's real
     # decompiled `Pokemon` struct (include/game/pxdvs/app/pokemon/pokemon.hpp)
@@ -741,9 +788,23 @@ class AddressProfile:
     # verification (Eevee's ability, index 50, resolved to "Run Away" /
     # "Makes escaping easier.", matching the project owner's OCR exactly).
     abilities_table_base: int = 0x803FFC50
+    # The RECORD LAYOUT below is vanilla's, and is no longer read directly
+    # by the lookup: Pokemon XG repacks this one table (stride 12 -> 8,
+    # name +4 -> +0, description +8 -> +4) to fit 106 abilities where
+    # vanilla had 78, while keeping the disc label, the DOL layout and
+    # every engine signature identical -- so nothing outside the table can
+    # tell the two builds apart. `ability_layout.derive_ability_layout`
+    # reads the real values out of the three accessor instructions named
+    # below instead. These three fields are kept as the documented vanilla
+    # values and as the expectation the derivation is checked against.
     abilities_table_stride: int = 12
     abilities_name_id_offset: int = 4
     abilities_description_id_offset: int = 8
+    # The three one-line accessors whose immediate fields ARE the layout;
+    # see ability_layout.py for the full derivation and its verification.
+    abilities_stride_instruction: int = 0x801442B0       # mulli r4, r3, N
+    abilities_name_instruction: int = 0x80144290         # lwz r3, N(r3)
+    abilities_description_instruction: int = 0x80144278  # lwz r3, N(r3)
     # "Do what with <Pokemon>?" action popup, opened from the party list.
     # Same custom-widget selection-index convention as the summary screen
     # (`+0x9F`), live-confirmed: incremented 0->1 on one D-pad-Down press.
@@ -821,23 +882,41 @@ class AddressProfile:
     # 4=Exit. The project owner confirmed the exact P?DA name.
     pause_menu_id: int = 87
     pause_menu_labels: tuple = ("Pokemon", "P star D A", "Items", "Save", "Exit")
+    # These five are the CANDIDATE entries, not the on-screen rows. The
+    # menu hides any the player has not unlocked -- before the P*DA is
+    # obtained the screen shows only Pokemon/Items/Save/Exit -- so reading
+    # the cursor position straight into the tuple above named the wrong
+    # option for every row after the first (project owner, 2026-08-13:
+    # "its everything but pda. pokemon items save exit").
+    #
+    # The game keeps the mapping itself. `menuTop` (0x8002F718) walks all
+    # five candidates, tests each with `menuItemBiosGetSelectFlag`, and for
+    # each visible one calls `menuTitleSetSelect(row, candidate)`, which
+    # stores a s16 at `_menuTitleWork+0x40` indexed by row*2
+    # (`sth r4, 0x40(r3)` at 0x800A31BC; `menuTitleGetSelect` reads the
+    # same place with `lha`). So row -> candidate is a live read, and the
+    # tuple above is only the candidate NAMES.
+    #
+    # _menuTitleWork = 0x8043D2A8 (lis 0x8044 / addi -0x2D58), +0x40 for
+    # the array. Live-confirmed on a save that owns the P*DA: the table
+    # reads (0, 1, 2, 3, 4) -- identity, which is exactly right when
+    # nothing is hidden. It is in .bss, whose placement is identical in
+    # both known builds.
+    pause_menu_entry_map: int = 0x8043D2E8
+    pause_menu_entry_stride: int = 2
     # Eevee evolution-stone selection screen (a dedicated 5-option menu,
     # not the general Bag) -- own new `menu_id`, live-confirmed the same
     # `+0x9F` index convention (diffed a full memory snapshot before/after
     # one real cursor move, then captured all 5 distinct index values
-    # across a full cycle). Two candidate data sources near the window
-    # were investigated as ways to resolve the option names generically
-    # and both ruled out as UI decoration, not item data (see
-    # ACCESSIBILITY_COVERAGE_MATRIX.md's "Eevee evolution-stone selection
-    # menu" entry) -- so unlike every other menu on this page, these
-    # labels are NOT independently re-derivable from a generic mechanism;
-    # they are exactly and only what the project owner read via their own
-    # OCR for this one instance: Water Stone, Thunder Stone, Fire Stone,
-    # Moon Shard, Sun Shard, in that order. Not yet confirmed whether this
-    # order is fixed regardless of inventory or specific to this save.
+    # across a full cycle). The owning M6_junk_1F field script supplies the
+    # item ID for each Dialogs::58 result: indices 0..4 select 97, 96, 95,
+    # 517 and 516 respectively. Production resolves those IDs through the
+    # loaded build's ItemDatabase; no English option names live here.
     stone_selection_menu_id: int = 175
-    stone_selection_labels: tuple = (
-        "Water Stone", "Thunder Stone", "Fire Stone", "Moon Shard", "Sun Shard")
+    stone_selection_item_ids: tuple = (97, 96, 95, 517, 516)
+    # Evolved-form IDs paired with the script's item order above. These are
+    # the forms in Eevee's own evolution records, not display strings.
+    stone_selection_species_ids: tuple = (134, 135, 136, 197, 196)
     # Party list screen itself (the 7-window screen shown when opening the
     # party from the overworld menu). Same `+0x9F` selection-index
     # convention as the summary screen and action popup; live-confirmed on
@@ -998,6 +1077,9 @@ class AddressProfile:
     """Distance margin before an announced target counts as left, so
     standing on the edge of a zone cannot re-announce repeatedly."""
     interaction_ready_facing_hysteresis: float = 15.0
+    # Room ID changes before the old room's actor array is replaced. Live
+    # 2026-08-15: that gap falsely exposed Jovi for 1.2 seconds in Lab 1F.
+    interaction_ready_map_change_grace: float = 2.0
     """Extra degrees on top of talk_cone_degrees before an announced target
     counts as turned away. Facing changes with every step in a game with no
     turn-in-place, so without this the cue would retrigger constantly while
@@ -1094,13 +1176,32 @@ class AddressProfile:
     default_entity_next_category_hotkey: str = "ctrl+shift+period"
     default_entity_prev_category_hotkey: str = "ctrl+shift+comma"
     default_entity_repeat_hotkey: str = "ctrl+slash"
-    default_entity_refresh_hotkey: str = "ctrl+shift+slash"
-    default_collision_probe_hotkey: str = "ctrl+shift+w"
-    default_interaction_mark_hotkey: str = "ctrl+shift+k"
+    # There is no refresh hotkey. It held ctrl+shift+slash until
+    # 2026-08-16, when the project owner asked for autowalk on that chord
+    # and then, told what refresh had been for, removed it outright rather
+    # than rehome it. Nothing was lost that had ever worked: `ctrl+slash`
+    # (repeat) matched every ctrl+shift+slash press, and `poll_once` tested
+    # repeat first, so refresh had never once run in production. Picking up
+    # entities that appeared after a category was activated is still
+    # reachable -- switching category away and back re-reads the live list.
+    default_autowalk_hotkey: str = "ctrl+shift+slash"
+    """Autowalk toggle, moved here from ctrl+w on 2026-08-16 at the project
+    owner's request. It had taken over ctrl+w from the Lab 2F
+    forward-collision diagnostic, which was deleted in that change -- a
+    single-room development probe whose one real consumer,
+    `predict_forward_collision`, is used directly by
+    `terrain_footsteps.BlockedMovementReader` and `pathfinding.py` and was
+    untouched by its removal. ctrl+w is now unbound.
+
+    This chord only became usable the same day: until then `ctrl+slash`
+    (repeat) matched every ctrl+shift+slash press too, because a chord was
+    tested with `all(held)` and never checked that the modifiers it does
+    NOT name were up. See `hotkeys.WindowsForegroundHotkey._pressed`."""
+    default_interaction_mark_hotkey: str = "ctrl+k"
     """Development-only marker for the interaction diagnostic. Deliberately
     NOT one of the entity-nav chords: it has to be pressable immediately
     before or after A without disturbing the selection being measured.
-    `ctrl+shift+m` was the obvious pick and is already the money summary --
+    `ctrl+m` was the obvious pick and is already the money summary --
     every other default is listed in this same block, so check here before
     adding another."""
     # Audio guide: continuous "hot/cold" spatial tone toward whatever is
@@ -1114,8 +1215,8 @@ class AddressProfile:
     # nothing else. "n" is the obstacle-aware routed navigation (waypoints,
     # walk-model routing, the whole navigation_service stack) that "g" used
     # to carry. Only one runs at a time -- see audio_guide.py's `peer`.
-    default_audio_guide_hotkey: str = "ctrl+shift+g"
-    default_navigation_guide_hotkey: str = "ctrl+shift+n"
+    default_audio_guide_hotkey: str = "ctrl+g"
+    default_navigation_guide_hotkey: str = "ctrl+n"
     audio_guide_max_distance: float = 120.0
     audio_guide_arrival_distance: float = 4.0
     # Teleport to whatever entity-nav currently has selected -- the only
@@ -1124,7 +1225,43 @@ class AddressProfile:
     # full safety scoping (entity-nav-resolved targets only, never a
     # free-typed coordinate; player's own Y used for non-NPC categories
     # since their Y is a CCD trigger centroid, not real floor height).
-    default_teleport_hotkey: str = "ctrl+shift+t"
+    default_teleport_hotkey: str = "ctrl+t"
+    # Autowalk: the SECOND memory-writing feature, added 2026-08-16 at the
+    # project owner's explicit direction ("you may void the read only
+    # philosophy for this time"). Unlike teleport it does not write the
+    # player's position at all -- it writes the game's OWN scripted-stick
+    # override and lets the engine walk the character normally. See
+    # hero_stick.py for the full derivation; the short version is below.
+    #
+    # `HeroMove` (0x804479F0, pinned by the lis/addi pair at the top of both
+    # accessors) carries a five-byte block the engine uses to drive the hero
+    # from script instead of from the controller:
+    #
+    #   +0x3AE  override active flag
+    #   +0x3AF  left stick X   \  written together by _setStickData
+    #   +0x3B0  left stick Y    | (0x8014E7D4), read back by _getStickData
+    #   +0x3B1  left stick X'   | (0x8014E7F8), which checks the flag FIRST
+    #   +0x3B2  left stick Y'  /  and returns these instead of the pad.
+    #
+    # The pairs are the smoothed and unsmoothed reads of the same stick
+    # (GSinputGetLeftStick{X,Y}Data called with the second argument 1 then
+    # 0 on the non-override path); a steady hold makes them equal, which is
+    # what autowalk writes. The game uses this itself in
+    # _heroMoveSlowStopFactor (0x8014EDF4), which captures the live stick,
+    # decays it over successive frames through _setStickData, then clears
+    # the flag -- i.e. this is the engine's own path, not an injected one.
+    hero_move_base: int = 0x804479F0
+    hero_move_stick_override_offset: int = 0x3AE
+    hero_move_stick_data_offset: int = 0x3AF
+    # Full stick deflection, as the engine itself writes it: _getStickData's
+    # D-pad path stores +/-0x38 (56) for each direction. Independently
+    # matches the +/-56 full deflection movement_input.py measured live from
+    # the controller cache on 2026-08-03.
+    hero_move_stick_full_deflection: int = 0x38
+    default_autowalk_arrival_distance: float = 4.0
+    """Shared with the audio guide's own arrival radius on purpose: "close
+    enough to interact with" is one fact about the game, and having autowalk
+    stop somewhere the guide would still be calling out would be incoherent."""
     # "item"/"healing" reuse npc_beacons.py's verified, hand-curated
     # per-floor ITEMS/HEALING lookups (see entity_sources.
     # CategoryFilteredEntitySource) -- real names, but only covers the
@@ -1133,11 +1270,8 @@ class AddressProfile:
     # table + CCD collision data instead (authoritative_warps.py's
     # AuthoritativeElevatorEntitySource/AuthoritativeDoorEntitySource),
     # covering every room in the game, same as "warp".
-    # "door" is deliberately ABSENT from the cycle (removed at the project
-    # owner's request, 2026-08-05). Doors are still discovered and still
-    # sound their own passive beacon -- `door_source` remains wired into
-    # the beacon reader -- they simply are not one of the categories the
-    # entity-nav hotkeys page through. (Narrowed 2026-08-10: a door sharing
+    # "door" was restored to the cycle at the project owner's request on
+    # 2026-08-15. Doors also retain their passive beacon. A door sharing
     # its region with a warp is published silent, since the warp already
     # sounds from that exact point -- see AuthoritativeDoorEntitySource.)
     # The three tuples are positional and
@@ -1155,15 +1289,15 @@ class AddressProfile:
     # see ENTITY_STATE_AND_BEACON_POLICY.md. Listed last so it never sits
     # between two categories the player cycles routinely.
     entity_nav_category_keys: tuple = (
-        "npc", "item", "interact", "exit", "hazard")
+        "npc", "item", "door", "interact", "exit", "bridge", "hazard")
     entity_nav_category_singular_labels: tuple = (
-        "NPC", "Item", "Interactable", "Exit", "Hazard")
+        "NPC", "Item", "Door", "Interactable", "Exit", "Bridge", "Hazard")
     entity_nav_category_plural_labels: tuple = (
-        "NPCs", "Items", "Interactables", "Exits", "Hazards")
-    """The six-category design (option A), minus Pokemon until its actor
-    distinction is established. Collapsed from eight on 2026-08-10:
-    Elevators, Warps and Bridges became **Exits**, and Signs folded into
-    **Interactables**.
+        "NPCs", "Items", "Doors", "Interactables", "Exits", "Bridges", "Hazards")
+    """Seven cycling categories, minus Pokemon until its actor distinction
+    is established. Elevators and Warps remain grouped as **Exits**; Signs
+    remain folded into **Interactables**; Doors and Gateon Bridges are
+    separate categories.
 
     These are CYCLING groups, not entity types. `Entity.category` still
     says warp/elevator/bridge/sign, because the beacon sounds,
@@ -1173,6 +1307,23 @@ class AddressProfile:
     # Uncalibrated, documented game-unit thresholds (see entity_nav.py).
     entity_nav_same_position_threshold: float = 1.5
     entity_nav_vertical_threshold: float = 3.0
+    entity_nav_auto_repeat_seconds: float = 1.0
+    """How long the player must stand still before the current selection is
+    re-announced without them pressing anything (see
+    `EntityNavigator._poll_auto_repeat`). Requested value; not tuned by ear.
+    Was 1.5 on first delivery, lowered to 1.0 at the project owner's request
+    (2026-08-12) after using it.
+
+    Fires ONCE per stop. Walking again re-arms it, so holding position never
+    produces a repeating announcement."""
+    entity_nav_auto_repeat_movement_epsilon: float = 0.5
+    """Per-poll displacement, in game units, below which the player counts as
+    standing still for the auto-repeat above.
+
+    Reuses the value `navigation_service.STALL_MOVEMENT_EPSILON` already uses
+    for the same physical question -- "is the player actually moving" --
+    rather than introducing a second number for it. At the measured 17-35
+    units/s of real walking, a moving player clears this in a single poll."""
     # Warp category -- UNVERIFIED/TENTATIVE, see ENTITY_NAVIGATION.md and
     # entity_sources.WarpEntitySource's docstring. Originally labeled
     # "treasures" by an unverified diagnostic script; live testing strongly

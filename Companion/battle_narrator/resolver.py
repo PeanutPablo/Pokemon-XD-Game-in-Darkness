@@ -6,6 +6,7 @@ from pathlib import Path
 
 import _dialogue_extraction_tool as extraction
 
+from .ability_layout import derive_ability_layout
 from .battle_identity import (
     FOE, PLAYER, BattleIdentityResolver, speech_case,
 )
@@ -142,11 +143,43 @@ class LocalMoveData:
     NAME_OFFSET = 0x20
     SUFFIX_OFFSET = 0x28
     DESCRIPTION_OFFSET = 0x2C
-    TYPE_NAMES = (
-        "Normal", "Fighting", "Flying", "Poison", "Ground", "Rock",
-        "Bug", "Ghost", "Steel", "Unknown", "Fire", "Water", "Grass",
-        "Electric", "Psychic", "Ice", "Dragon", "Dark", "Shadow",
-    )
+    # --- the type table -------------------------------------------------
+    # Type names are READ FROM THE GAME, not listed here. This used to be a
+    # hardcoded tuple, and index 9 was the trap: vanilla leaves that slot
+    # unused ("?"), and XG puts FAIRY there -- 15 XG moves would have been
+    # announced as "Unknown-type". Any hack is free to do the same again.
+    #
+    # `zokuseiData` is REL pointer 130 in `common.rel`, 0x30-byte records
+    # with a u32 name message ID at +0x08, 18 entries in both builds. Shape
+    # taken from purify_chamber.py, which already reads the same table live
+    # (`ZOKUSEI_DATA`/`ZOKUSEI_STRIDE`/`ZOKUSEI_NAME_OFFSET`); the pointer
+    # index was then located offline by searching every REL pointer for the
+    # one base where 18 consecutive records all resolve to short,
+    # control-free strings, which exactly one does in both images.
+    TYPE_TABLE_POINTER = 130
+    TYPE_TABLE_STRIDE = 0x30
+    TYPE_TABLE_NAME_OFFSET = 0x08
+    TYPE_TABLE_MAXIMUM = 32
+    """Scan bound only. The real count is where the names stop resolving."""
+    # The game stores battle-UI labels, which are abbreviated to fit the
+    # widget: "FIGHT", "ELECTR", "PSYCHC". Those are display truncations,
+    # not names, and a screen reader should not read them aloud. Expansion
+    # is keyed on the GAME'S OWN TEXT rather than on a type index, so it
+    # cannot silently mis-assign the way an index table can: a build whose
+    # slot 9 says "Fairy" simply falls through to "Fairy".
+    SPOKEN_TYPE_NAMES = {
+        "FIGHT": "Fighting",
+        "ELECTR": "Electric",
+        "PSYCHC": "Psychic",
+    }
+
+    @classmethod
+    def spoken_type_name(cls, text):
+        """A type's stored label as it should be spoken.
+
+        Title-cased so vanilla's shouted "NORMAL" and XG's "Normal" reach
+        NVDA identically; the word itself is never substituted."""
+        return cls.SPOKEN_TYPE_NAMES.get(text.upper(), text.title())
 
     def __init__(self, extraction_dir, catalog):
         path = Path(extraction_dir) / "raw" / "files" / "common.fsys"
@@ -163,6 +196,7 @@ class LocalMoveData:
             self.moves_base = rel.get_pointer(124)
             names_base = rel.get_pointer(136)
             self.names = extraction.decode_string_table(self.data[names_base:])
+            self.type_names = self._read_type_names(rel)
         except Exception as exc:
             raise LocalDataError(f"Could not load local move data: {exc}") from exc
         self.catalog = catalog
@@ -175,6 +209,34 @@ class LocalMoveData:
             raise LocalDataError(
                 f"Could not load move descriptions: {exc}"
             ) from exc
+
+    def _read_type_names(self, rel):
+        """Every type's spoken name, in type-ID order, from the game.
+
+        The table carries no count of its own that this reader has located,
+        so it is walked until a record's name message stops resolving --
+        which is the same evidence that identified the table in the first
+        place, and gives 18 entries in both known builds."""
+        base = rel.get_pointer(self.TYPE_TABLE_POINTER)
+        names = []
+        for index in range(self.TYPE_TABLE_MAXIMUM):
+            record = base + index * self.TYPE_TABLE_STRIDE
+            if record + self.TYPE_TABLE_NAME_OFFSET + 4 > len(self.data):
+                break
+            name_id = struct.unpack_from(
+                ">I", self.data, record + self.TYPE_TABLE_NAME_OFFSET)[0]
+            tokens = self.names.get(name_id)
+            if tokens is None or any(token[0] == "ctrl" for token in tokens):
+                break
+            text = extraction.render_tokens(tokens)
+            if not text:
+                break
+            names.append(self.spoken_type_name(text))
+        if not names:
+            raise LocalDataError(
+                "The move-type table resolved no names; this disc's type "
+                "data is not in the layout this reader understands.")
+        return tuple(names)
 
     def resolve(self, move_id):
         entry = self.moves_base + move_id * self.STRIDE
@@ -191,12 +253,38 @@ class LocalMoveData:
             raise MemoryError(f"Move {move_id} name contains controls")
         return name, suffix_message.template
 
+    def find_id(self, move_name, maximum=None):
+        """Return the unique local move ID whose own name matches live text.
+
+        Shadow Pokemon are the important caller.  Their embedded Pokemon
+        slots retain ordinary move IDs while the battle menu substitutes
+        the unlocked Shadow moves.  The menu exposes the substituted name
+        but not its ID, so indexing the move table with the embedded ID is
+        wrong.  Searching this build's own table keeps the recovery
+        build-specific and fails closed if a name is absent or ambiguous.
+        """
+        wanted = normalize(move_name)
+        matches = []
+        count = max(0, (len(self.data) - self.moves_base) // self.STRIDE)
+        if maximum is not None:
+            count = min(count, maximum + 1)
+        for move_id in range(1, count):
+            try:
+                name, _suffix = self.resolve(move_id)
+            except MemoryError:
+                continue
+            if normalize(name) == wanted:
+                matches.append(move_id)
+                if len(matches) > 1:
+                    return None
+        return matches[0] if matches else None
+
     def details(self, move_id):
         entry = self.moves_base + move_id * self.STRIDE
         if move_id <= 0 or entry < 0 or entry + self.STRIDE > len(self.data):
             raise MemoryError(f"Move ID {move_id} is outside local data")
         type_id = self.data[entry + self.TYPE_OFFSET]
-        if type_id >= len(self.TYPE_NAMES):
+        if type_id >= len(self.type_names):
             raise MemoryError(f"Move {move_id} has invalid type {type_id}")
         pp = self.data[entry + self.PP_OFFSET]
         power = struct.unpack_from(">H", self.data, entry + self.POWER_OFFSET)[0]
@@ -211,7 +299,7 @@ class LocalMoveData:
         if not description:
             raise MemoryError(f"Move {move_id} has an empty description")
         return MoveDetails(
-            self.TYPE_NAMES[type_id], power, accuracy, pp, description
+            self.type_names[type_id], power, accuracy, pp, description
         )
 
 
@@ -256,12 +344,28 @@ class LocalAbilityData:
     `common.rel` string table used for move names to "RUN AWAY" /
     "Makes escaping easier." -- an exact match to the project owner's own
     OCR of the live Status page.
+
+    The table's RECORD LAYOUT is not assumed. It is the one structure this
+    project reads whose shape a hack has actually been seen to change --
+    XG repacks it from 12-byte records to 8 to fit 106 abilities where
+    vanilla had 78 -- so `ability_layout.derive_ability_layout` reads the
+    stride and both field offsets out of the engine's own three accessor
+    instructions each session. See that module for why deriving is the
+    only safe option here: XG is byte-identical to vanilla in the disc
+    label, the DOL layout and every engine signature, so there is nothing
+    else left to tell the two record shapes apart.
+
+    The species -> ability INDEX half above needs no such treatment: it
+    was checked against XG directly and reads correctly under the existing
+    0x124 stride (XG's Pikachu resolves to abilities 9 and 31, Static and
+    Lightningrod, which is exactly what XG's own documentation lists).
     """
     STRIDE = 0x124
     ABILITY1_OFFSET = 0x32
     ABILITY2_OFFSET = 0x33
 
     def __init__(self, extraction_dir):
+        self._layout = None
         path = Path(extraction_dir) / "raw" / "files" / "common.fsys"
         if not path.is_file():
             raise LocalDataError(
@@ -289,18 +393,40 @@ class LocalAbilityData:
             return ability2
         return ability1
 
+    def layout(self, memory, profile):
+        """The live record layout, derived once per session.
+
+        Cached because it is a property of the loaded binary, which cannot
+        change without a reboot -- and re-deriving it would mean three
+        extra reads on every ability lookup."""
+        if self._layout is None:
+            self._layout = derive_ability_layout(memory, profile)
+        return self._layout
+
     def resolve(self, memory, profile, ability_index):
-        base = profile.abilities_table_base + ability_index * profile.abilities_table_stride
-        name_id = memory.u32(base + profile.abilities_name_id_offset, "ability name ID")
-        desc_id = memory.u32(base + profile.abilities_description_id_offset, "ability description ID")
+        layout = self.layout(memory, profile)
+        base = profile.abilities_table_base + ability_index * layout.stride
+        name_id = memory.u32(base + layout.name_offset, "ability name ID")
+        desc_id = memory.u32(base + layout.description_offset, "ability description ID")
         name_tokens = self.names.get(name_id)
         desc_tokens = self.names.get(desc_id)
-        if name_tokens is None or desc_tokens is None:
+        if name_tokens is None:
             raise MemoryError(f"Ability {ability_index} lacks safe local text")
         if any(token[0] == "ctrl" for token in name_tokens):
             raise MemoryError(f"Ability {ability_index} name contains controls")
         name = extraction.render_tokens(name_tokens)
-        description = extraction.render_tokens(desc_tokens)
+        # A missing DESCRIPTION is not a reason to withhold the NAME. XG
+        # ships at least one ability (57, Trickster, on Drowzee) whose
+        # description ID resolves to nothing -- its own documentation
+        # prints the description as "-" -- and requiring both meant the
+        # player heard "ability 57" instead of "Trickster". The caller
+        # already treats an empty description as ordinary (party.py's own
+        # fallback returns one), so degrading here loses nothing and keeps
+        # the half that carries the meaning.
+        description = ""
+        if desc_tokens is not None and not any(
+                token[0] == "ctrl" for token in desc_tokens):
+            description = extraction.render_tokens(desc_tokens)
         return name, description
 
 

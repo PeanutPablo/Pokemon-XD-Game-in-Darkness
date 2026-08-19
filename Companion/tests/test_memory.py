@@ -25,6 +25,9 @@ class RaisingBackend:
     def read_bytes(self, address, size):
         raise RuntimeError("Could not read memory at 12345")
 
+    def write_bytes(self, address, data):
+        raise RuntimeError("Could not write memory at 12345")
+
 
 class MemoryReadFailureTests(unittest.TestCase):
     """dolphin_memory_engine can raise a raw RuntimeError (not this
@@ -41,8 +44,19 @@ class MemoryReadFailureTests(unittest.TestCase):
 
 class MemoryWriteTests(unittest.TestCase):
     """write_bytes is the only write path in this project (teleport.py's
-    sole use); everything else stays read-only. Covers just the
-    range-validation + backend-delegation contract."""
+    position write and hero_stick.py's stick override); everything else
+    stays read-only. Covers just the range-validation + backend-delegation
+    contract."""
+
+    def test_backend_runtime_error_becomes_memory_error(self):
+        """The read path has converted these since it was written; the
+        write path did not, which mattered once a write started happening
+        on teardown paths -- `hero_stick.release()` runs during disconnect,
+        and an unconverted RuntimeError there would abandon the rest of the
+        teardown with the stick override still latched."""
+        memory = MemoryReader(RaisingBackend(), FakeProfile())
+        with self.assertRaises(GameMemoryError):
+            memory.write_bytes(0x80500000, b"\x00", "test write")
 
     def test_writes_valid_range_to_backend(self):
         backend = FakeBackend()

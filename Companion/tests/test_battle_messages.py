@@ -12,9 +12,25 @@ production table -- which is the whole point of retiring those tables.
 
 The expected strings below were produced by running this fixture, reading
 what the shipped bytes decode to, and pinning it.
+
+Which build they were pinned from
+---------------------------------
+Vanilla US XD. That matters because the templates come from whatever disc
+the player generated `_dialogue_extraction` from, and Pokemon XG rewrites
+the dialogue -- its battle EXP message reads "Exp. Points!" where vanilla
+reads "EXP. Points!", and that is the mildest of its changes. Running this
+module against an XG extraction therefore fails on the text, which says
+nothing about the renderer.
+
+A committed fixture is not an option (the templates are copyrighted game
+data). So `pinned_build.py` fingerprints the installed data by one
+template's raw bytes and this module skips, rather than fails, when the
+installed build is not the one these sentences were read from. The
+narrator itself is build-agnostic; only these pinned expectations are not.
 """
 import io
 import logging
+import sys
 import unittest
 from pathlib import Path
 
@@ -25,7 +41,7 @@ from battle_narrator.battle_identity import (
 from battle_narrator.battle_opcodes import REGISTRY
 from battle_narrator.memory import MemoryReader
 from battle_narrator.message_render import MessageRenderer
-from battle_narrator.messages import FightCommonCatalog
+from battle_narrator.messages import FightCommonCatalog, PocketMenuCatalog
 from battle_narrator.narrator import BattleNarrator
 from battle_narrator.profile import XD_US_REV0
 from battle_narrator.runtime_messages import RuntimeMessageCatalog
@@ -33,7 +49,18 @@ from battle_narrator.speech import SpeechCoordinator, SpeechEventClass
 from battle_narrator.tasks import TaskSnapshot
 from battle_narrator.text_safety import is_double_encoded, repair_double_encoded
 
-EXTRACTION = (Path(__file__).resolve().parents[1] / "_dialogue_extraction")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pinned_build  # noqa: E402
+
+# The vanilla tree specifically -- data now lives one subdirectory per
+# disc, and these expectations are vanilla's shipped sentences. Falls back
+# to the default location so the module still imports when no vanilla data
+# is installed; the skip below is what actually handles that case.
+EXTRACTION = (
+    pinned_build.vanilla_extraction()
+    or Path(__file__).resolve().parents[1] / "_dialogue_extraction"
+)
 
 MANAGER = 0x80200000
 TABLE = 0x80210000
@@ -895,6 +922,36 @@ class LifecycleTests(unittest.TestCase):
             narrator.poll_once()
         self.assertEqual(len(speaker.spoken), 1)
 
+    def test_active_bag_routes_pocket_menu_message_task(self):
+        pocket = PocketMenuCatalog(
+            EXTRACTION / "raw" / "files" / "pocket_menu.fsys")
+        self.assertEqual(pocket.get(15391).context, "pocket_menu")
+
+        class Rendering:
+            is_speakable = True
+            text = "MIROR B. seems to be at the Poke Spot."
+            unresolved = ()
+            subjects = {}
+
+        class Renderer:
+            def render(self, message_id):
+                self.message_id = message_id
+                return Rendering()
+
+        allocated = [TaskSnapshot(0, 0x80003000, 2, 15391)]
+        speaker = Speaker()
+        renderer = Renderer()
+        narrator = BattleNarrator(
+            _Connection(), SequenceTasks([allocated] * 2), Battle.catalog,
+            _Resolver(Battle().identity), speaker, logger(), poll_interval=0,
+            renderer=renderer, supplemental_catalog=pocket,
+            supplemental_active=lambda: True)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(renderer.message_id, 15391)
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["MIROR B. seems to be at the Poke Spot."])
+
     def test_the_same_id_with_a_different_subject_speaks_again(self):
         battle = Battle(20044)
         first = battle.battler("attack_mons", "GARDEVOIR")
@@ -978,6 +1035,237 @@ class LifecycleTests(unittest.TestCase):
         narrator.poll_once(); narrator.poll_once()
         self.assertEqual(
             [text for text, _ in speaker.spoken], ["GARDEVOIR is frozen solid!"])
+
+
+class MultiStatMoveTests(unittest.TestCase):
+    """Dragon Dance, Curse, Power-Up Punch: one move, several stat lines.
+
+    Live failure, 2026-08-10 19:26 and 19:27: Dragon Dance announced only
+    "ATTACK rose!" and Curse only two of its three changes. The log shows
+    the missing lines produced no `OPEN` at all -- the game reuses ONE task
+    and ONE message ID for each successive line, so `EventTracker` emits
+    nothing between them and a latched state never re-arms. Curse got two
+    only because Speed uses message 20246 while Attack and Defense both use
+    20243.
+    """
+
+    def narrator(self, battle, polls, message_id=20243):
+        speaker = Speaker()
+        allocated = [TaskSnapshot(0, 0x80003000, 2, message_id)]
+        narrator = BattleNarrator(
+            _Connection(), SequenceTasks([allocated] * polls), Battle.catalog,
+            _Resolver(battle.identity), speaker, logger(),
+            poll_interval=0, renderer=battle.renderer)
+        return narrator, speaker
+
+    def stat(self, battle, nickname, stat, direction, magnitude=""):
+        """Plant one stat-change substitution set. 20243 is
+        "[Pokemon 15]'s [0x0D] [0x0E] [0x41]!" -- attacker, stat name,
+        magnitude, direction."""
+        battle.battler("attack_mons", nickname, side=0, slot=0)
+        battle.set_text("ev_str_buf0", stat)
+        battle.set_text("ev_str_buf1", magnitude)
+        battle.set_text("ev_str_buf2", direction)
+
+    def test_two_stat_changes_sharing_one_message_id_both_speak(self):
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 8)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 1)
+        # Same task, same message ID, new substitution -- no OPEN event.
+        self.stat(battle, "NORDVAN", "SPEED", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["NORDVAN's ATTACK rose!", "NORDVAN's SPEED rose!"])
+
+    def test_an_unchanged_substitution_still_speaks_only_once(self):
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 10)
+        for _ in range(10):
+            narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 1)
+
+    def test_three_changes_across_two_message_ids_all_speak(self):
+        # The Curse shape: Speed via 20246, then Attack and Defense both
+        # via 20243. Only the middle transition is an id_change.
+        battle = Battle(20243, 20246)
+        speaker = Speaker()
+        speed = [TaskSnapshot(0, 0x80003000, 2, 20246)]
+        attack = [TaskSnapshot(0, 0x80003000, 2, 20243)]
+        narrator = BattleNarrator(
+            _Connection(),
+            SequenceTasks([speed] * 2 + [attack] * 4),
+            Battle.catalog, _Resolver(battle.identity), speaker, logger(),
+            poll_interval=0, renderer=battle.renderer)
+        self.stat(battle, "DROWZEE", "SPEED", "fell")
+        narrator.poll_once(); narrator.poll_once()
+        self.stat(battle, "DROWZEE", "ATTACK", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.stat(battle, "DROWZEE", "DEFENSE", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["DROWZEE's SPEED fell!",
+             "DROWZEE's ATTACK rose!",
+             "DROWZEE's DEFENSE rose!"])
+
+    def test_a_repeated_earlier_value_is_not_spoken_twice(self):
+        # Attack rose, Speed rose, then the Attack text returns (the game
+        # re-using the buffer). Content dedup must hold within the cycle.
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 12)
+        narrator.poll_once(); narrator.poll_once()
+        self.stat(battle, "NORDVAN", "SPEED", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 2)
+
+    def test_the_subject_drifting_under_an_open_box_does_not_speak_again(self):
+        """The Numel regression, 2026-08-18.
+
+        Live log, one OPEN and one CLOSE with two utterances between them:
+
+            .503 OPEN   message_id=20451 '[Pokemon 15] is in Rage Mode!'
+            .566 SPEECH 'Taillow is in Rage Mode!'   <- real
+            .756 SPEECH 'Numel is in Rage Mode!'     <- invented
+            .819 CLOSE  previous_packed=20451
+
+        Numel was neither a Shadow Pokemon nor the player's, and never
+        entered Rage Mode. `_ATTACK_MONS` had simply advanced to the next
+        attacker while the box was still up, and the armed state re-rendered
+        the same template around it.
+        """
+        battle = Battle(20243)
+        self.stat(battle, "TAILLOW", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 8)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 1)
+        # A DIFFERENT battler -- a different party slot, so a different
+        # canonical identity, not merely a different wrapper pointer.
+        self.stat(battle, "NUMEL", "ATTACK", "rose")
+        battle.battler("attack_mons", "NUMEL", side=1, slot=3)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken], ["TAILLOW's ATTACK rose!"],
+            "a battler pointer drifting under a still-open box invented a "
+            "line about a Pokemon the game never mentioned")
+
+    def test_the_same_battler_through_a_new_wrapper_still_speaks(self):
+        # The guard must key on WHICH POKEMON, not on the FightOutPokemon
+        # pointer. A Baton Pass keeps the wrapper and swaps the Pokemon
+        # behind it, so pointer identity answers a different question --
+        # and keying on it swallowed the second line of a Dragon Dance.
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 8)
+        narrator.poll_once(); narrator.poll_once()
+        # `battler()` hands out a fresh wrapper address every call, so this
+        # is the same Pokemon reached through a new pointer.
+        self.stat(battle, "NORDVAN", "SPEED", "rose")
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["NORDVAN's ATTACK rose!", "NORDVAN's SPEED rose!"])
+
+    def test_a_second_target_in_the_same_box_still_speaks(self):
+        """One box, two real lines, only the TARGET differing.
+
+        This is the shape the live Intimidate takes. 2026-08-18
+        17:15:11-12, one OPEN and no CLOSE between:
+
+            .757 OPEN   message_id=20215
+                        "[opcode_0x1E]'s [Ability 28] cuts [Pokemon 16]'s Attack!"
+            .821 SPEECH "Snubbull's Intimidate cuts Umbreon's Attack!"
+            .135 SPEECH "Snubbull's Intimidate cuts Taillow's Attack!"
+
+        Both are real -- Intimidate cuts BOTH foes from one box -- so the
+        drift guard must not touch it. Reproduced here with message 20132
+        ("[Pokemon 15] took aim at [Pokemon 16]!") rather than 20215
+        itself, because 20215 also needs the live ability table and this
+        test is about the guard, not about ability resolution. The
+        structure that matters is identical: two battler opcodes, the
+        actor held fixed while the target moves.
+
+        This is the case that rules out the simpler "any subject changed"
+        test -- which passed every other test in this file and would still
+        have swallowed the second half of every Intimidate.
+        """
+        battle = Battle(20132)
+        actor = battle.battler("attack_mons", "SNUBBULL", side=1, slot=0)
+        battle.battler("defence_mons", "UMBREON", side=0, slot=0)
+        narrator, speaker = self.narrator(battle, 8, message_id=20132)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 1, speaker.spoken)
+        # Same actor, second target.
+        battle.backend.put(battle.profile.attack_mons, be32(actor))
+        battle.battler("defence_mons", "TAILLOW", side=0, slot=1)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["SNUBBULL took aim at UMBREON!",
+             "SNUBBULL took aim at TAILLOW!"])
+
+    def test_a_reopened_box_may_speak_about_a_different_battler(self):
+        # The guard is scoped to ONE open cycle. A real new message gets its
+        # own OPEN, and the game does emit one per Rage Mode line (confirmed
+        # in the same log, 2026-08-14's two lines have an OPEN each).
+        battle = Battle(20243)
+        self.stat(battle, "TAILLOW", "ATTACK", "rose")
+        speaker = Speaker()
+        allocated = [TaskSnapshot(0, 0x80003000, 2, 20243)]
+        closed = [TaskSnapshot(0, 0x80003000, 0, None)]
+        narrator = BattleNarrator(
+            _Connection(),
+            SequenceTasks([allocated] * 2 + [closed] + [allocated] * 2),
+            Battle.catalog, _Resolver(battle.identity), speaker, logger(),
+            poll_interval=0, renderer=battle.renderer)
+        narrator.poll_once(); narrator.poll_once()
+        narrator.poll_once()          # close
+        self.stat(battle, "NUMEL", "ATTACK", "rose")
+        battle.battler("attack_mons", "NUMEL", side=1, slot=3)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(
+            [text for text, _ in speaker.spoken],
+            ["TAILLOW's ATTACK rose!", "NUMEL's ATTACK rose!"])
+
+    def test_a_closed_and_reopened_message_speaks_again(self):
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        speaker = Speaker()
+        allocated = [TaskSnapshot(0, 0x80003000, 2, 20243)]
+        closed = [TaskSnapshot(0, 0x80003000, 0, None)]
+        narrator = BattleNarrator(
+            _Connection(),
+            SequenceTasks([allocated] * 2 + [closed] + [allocated] * 2),
+            Battle.catalog, _Resolver(battle.identity), speaker, logger(),
+            poll_interval=0, renderer=battle.renderer)
+        for _ in range(5):
+            narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 2)
+
+    def test_a_spoken_message_going_unresolvable_is_not_logged_as_a_failure(self):
+        # Substitutions are torn down as the box closes. Reporting that as
+        # an unresolved failure would bury the real ones.
+        battle = Battle(20243)
+        self.stat(battle, "NORDVAN", "ATTACK", "rose")
+        narrator, speaker = self.narrator(battle, 6)
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(len(speaker.spoken), 1)
+        battle.backend.put(battle.profile.attack_mons, be32(0))
+        narrator.poll_once(); narrator.poll_once()
+        self.assertEqual(narrator._reported, set())
+
+    def test_a_never_resolved_message_is_still_reported_once(self):
+        battle = Battle(20243)
+        narrator, _speaker = self.narrator(battle, 4)
+        for _ in range(4):
+            narrator.poll_once()
+        self.assertEqual(len(narrator._reported), 1)
 
 
 class DisambiguationTests(unittest.TestCase):
@@ -1105,6 +1393,20 @@ class RetiredTableTests(unittest.TestCase):
             self.assertNotIn(f"{message_id}: \"", source, str(message_id))
             self.assertNotIn(f"{message_id}: '", source, str(message_id))
 
+
+if not pinned_build.is_vanilla_us():
+    # Applied to every TestCase in this module, one at a time, rather than
+    # through setUpModule. A module-level SkipTest collapses all 92 tests
+    # into a single skip entry, so the run reports 92 fewer tests without
+    # saying where they went -- which is the silent-truncation failure this
+    # project has been bitten by before. Decorating each class keeps every
+    # test individually visible and counted as skipped.
+    #
+    # Iterating the module's own namespace rather than naming the classes
+    # means a class added later cannot be missed.
+    for _name, _value in list(globals().items()):
+        if isinstance(_value, type) and issubclass(_value, unittest.TestCase):
+            globals()[_name] = unittest.skip(pinned_build.SKIP_REASON)(_value)
 
 if __name__ == "__main__":
     unittest.main()

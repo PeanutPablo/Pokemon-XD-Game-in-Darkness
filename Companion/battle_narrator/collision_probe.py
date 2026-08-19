@@ -1,14 +1,21 @@
-"""Controlled-room, read-only forward collision prediction.
+"""Read-only CCD parsing and forward collision prediction.
 
-Diagnostic vertical slice only, not route guidance. It parses ordinary
-room collision and tests whether a short hero-facing centerline intersects
-a vertical triangle at the hero's current height.
+Parses ordinary room collision (and the engine's own walk model) and tests
+whether a short hero-facing centerline intersects a vertical triangle at the
+hero's current height.
+
+Started life as a controlled-room diagnostic vertical slice, and carried a
+`ControlledRoomCollisionProbe` that spoke "wall ahead" for one hard-coded
+room (Lab 2F) on its own hotkey. That class was deleted on 2026-08-16 when
+its chord was reassigned to autowalk: it was development scaffolding, and
+the geometry underneath it had long since outgrown it. `predict_forward_
+collision` now serves `terrain_footsteps.BlockedMovementReader`, which
+announces the same fact for every room in the game, and the parsers serve
+`pathfinding.py`.
 """
 import math
 import struct
 from dataclasses import dataclass
-
-from .speech import SpeechEventClass
 
 
 @dataclass(frozen=True)
@@ -262,60 +269,3 @@ def predict_forward_collision(triangles, pose, distance=12.0):
             best = hit
     return best
 
-
-class ControlledRoomCollisionProbe:
-    """Foreground-hotkey diagnostic for exactly one room and one CCD."""
-
-    def __init__(
-        self, floor_id, ccd_path, pose_source, hotkey, speech, logger,
-        forward_distance=12.0,
-    ):
-        self.floor_id = floor_id
-        self.pose_source = pose_source
-        self.hotkey = hotkey
-        self.speech = speech
-        self.logger = logger
-        self.forward_distance = forward_distance
-        self.triangles = parse_environment_triangles(ccd_path.read_bytes())
-
-    def poll_once(self, current_floor_id, context_valid):
-        fired = self.hotkey.poll()
-        if not fired or not context_valid:
-            return
-        if current_floor_id != self.floor_id:
-            text = "Forward collision probe is unavailable in this room."
-            self.speech.emit(
-                SpeechEventClass.ENTITY_NAV, text,
-                deduplicate=False, interrupt=True,
-            )
-            self.logger.info(
-                "COLLISION PROBE unsupported floor=%s expected=%s",
-                current_floor_id, self.floor_id,
-            )
-            return
-        pose = self.pose_source.player_pose()
-        hit = predict_forward_collision(
-            self.triangles, pose, self.forward_distance
-        )
-        if hit is None:
-            text = f"Forward clear for {self.forward_distance:g}."
-            self.logger.info(
-                "COLLISION PROBE clear floor=%s x=%.3f y=%.3f z=%.3f "
-                "yaw=%.5f distance=%.2f",
-                current_floor_id, pose.position.x, pose.position.y,
-                pose.position.z, pose.yaw, self.forward_distance,
-            )
-        else:
-            text = f"Wall ahead, distance {hit.distance:.1f}."
-            self.logger.info(
-                "COLLISION PROBE hit floor=%s x=%.3f y=%.3f z=%.3f "
-                "yaw=%.5f distance=%.3f point=(%.3f,%.3f,%.3f) "
-                "entry=%s type=%s",
-                current_floor_id, pose.position.x, pose.position.y,
-                pose.position.z, pose.yaw, hit.distance, *hit.point,
-                hit.triangle.entry_index, hit.triangle.collision_type,
-            )
-        self.speech.emit(
-            SpeechEventClass.ENTITY_NAV, text,
-            deduplicate=False, interrupt=True,
-        )

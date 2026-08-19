@@ -209,6 +209,142 @@ For a diagnostic session on a matching executable:
 
 For XG, find the corresponding functions by code signature rather than copying the vanilla addresses.
 
+## Runtime object-enable state — RESOLVED 2026-08-13
+
+Phase C above ("add moving or toggleable collision objects only after their
+transforms and enable bits are verified") and the "confirm door
+enable/disable behavior" validation item are both settled. The structure was
+re-derived from `GScolsys2.s` rather than carried forward from the earlier
+partial note, and it is now read live.
+
+### Why it mattered
+
+The companion shipped `StaticObjectEnableState`, answering "everything is
+always enabled". That is not a neutral placeholder: it **reinstates collision
+objects the running game has switched off**, i.e. it invents walls. Agate's
+Relic Stone cave was the symptom — the cave mouth outdoors sealed into a
+26-tile pocket, and the interior split so that entrance→shrine-exit produced
+a confident route ending **180.4 units** from the exit.
+
+The walls themselves are real. All 22 boundary edges out of the `M3_out`
+pocket that refuse as wall-blocked do so against genuine geometry: an exact
+segment-to-triangle distance agrees with the swept test's longest-XZ-edge
+approximation on **22 of 22**, so none is an approximation artifact. Six
+triangles across the two rooms — one 2-triangle object outdoors, two more
+inside — are the entire defect.
+
+### Structure
+
+`GScolsys2` @ **0x80445C20**:
+
+| Offset | Field | Notes |
+| --- | --- | --- |
+| `+0x000` | `CCD_FILEHEAD* curCCD` | NULL ⇒ `GetObjEnable` returns 1 |
+| `+0x004` | `GSCOLSYS2_FLOOR floor` | 0xDC0 bytes |
+| `  +0x000` | `GSCOLSYS2_OBJ obj[64]` | stride `0x28` |
+| `    +0x00` | `f32[9]` | transform, copied from the CCD entry |
+| `    +0x24` | `u16 flags` | **bit 0 SET = DISABLED** |
+| `  +0xA00` | `<other>[48]` | stride `0x14`; unrelated to object enable |
+| `+0xDC4` | `s32 curFloor` | valid only when `0` |
+| `+0xDC8` | `GSgfxVF*` | |
+| `+0xDCC` | `void* displayList` | `GSgfxDLFree`d by `UnloadCCD` |
+
+- **Object count** is `*(u32*)(curCCD + 0x04)` — the same `entry_count` the
+  companion's own parser already reads out of the `.ccd`.
+- **Index mapping is the identity.** `GScolsys2LoadCCD` walks the CCD entry
+  array (stride `0x40`) and the OBJ array (stride `0x28`) in lockstep,
+  writing entry *i* into record *i*.
+- **One record serves both model slots.** `GScolsys2WalkGetHeight` (walk
+  model, CCD `+0x24`) and the hit-model sweep (`+0x28`/`+0x34`) each loop
+  *i* over `[0, count)`, call `GScolsys2GetObjEnable(i, …)` and `continue`
+  when it reports 0, *before* examining any geometry. Filtering only the wall
+  slot would mismodel the engine.
+- **`+0xDC4` is not a bank selector.** `GScolsys2GetCurFloor` accepts it only
+  when exactly `0` (`cmpwi 0; blt fail` then `cmpwi 1; blt ok`), and the only
+  write to it in the module is `GScolsys2Init` storing `0`. The `* 0xDC0`
+  scaling in the accessors is vestigial.
+
+### Semantics
+
+`GetObjEnable(index, out_u8)` stores the **inverse** of bit 0: bit set → `0`,
+bit clear → `1`. The out-parameter means *enabled*; the stored bit means
+*disabled*. `SetObjEnable(index, enable)` clears bit 0 when `enable != 0`
+(`rlwinm r0, r0, 0, 16, 30`, preserving every other bit) and sets it
+otherwise. Return codes: `0` ok, `1` no CCD loaded, `2` index out of range —
+and on both error paths the out-parameter is **left untouched**, which is why
+the companion raises rather than defaulting when it cannot answer.
+
+### Lifetime
+
+`GScolsys2LoadCCD` stores `0` into `obj[i].flags` for all `count` objects, so
+**every object starts enabled on room load** and the room script's
+`preprocess` then disables what story state calls for. `GScolsys2UnloadCCD`
+only nulls `curCCD`, leaving the flag words stale — safe precisely because
+the next `LoadCCD` rewrites them. State can also change **mid-room** at any
+time (Gateon Port's piers), so a snapshot is never valid indefinitely.
+
+`_gscolsysMakeStateData`/`_gscolsysRestoreStateData` are registered with
+`floorRegisterModule`: mode 3 serialises exactly 64 `u16` flag words
+(size `0x84` = 4 + 64×2) and modes 1/2 `memcpy` the whole `0xDC0` floor block.
+Enable state therefore **survives save/load**. The mode-3 loop stores to
+`GScolsys2 + 0x28 + i*0x28`, which is `floor + i*0x28 + 0x24` — an independent
+confirmation of both the stride and the flags offset.
+
+### Verification
+
+The address is not trusted on the strength of documentation. `profile.py`
+carries a new `engine_signatures` entry for `GScolsys2GetObjEnable` at
+`0x80117BAC`, whose first four instructions **are** the address
+(`lis r5, GScolsys2@ha` carries `0x8044`; `addi r6, r5, GScolsys2@l` carries
+`0x5C20`). Those bytes were confirmed against the shipped
+`orig/GXXE01/sys/main.dol` at file offset `0x114B0C`, and decode to
+`0x80445C20`. A build that moved the global fails the signature instead of
+silently reading whatever now sits there.
+
+### Corrections to the earlier note
+
+The 2026-08-01 note recorded "0x28-byte per-object records and bit 0 of
+`u16 +0x24`", which is right, but it did not establish the record **base**
+(`+0x04`, not `+0x00`), the **capacity** (64), the **index mapping**
+(identity with the file's entry index), or that **walk and hit share one
+record**. Those are the four facts a live implementation actually needs, and
+none had been pinned.
+
+### Live confirmation — 2026-08-13, CONFIRMED
+
+Read out of a running game, in `M3_out` with the cave open:
+
+```
+05:45:48.915  COLLISION enable-state ... floor=0x84 disabled=33
+05:45:48.928  NAVIGATION room load floor=0x84 room=M3_out walk_triangles=570
+              wall_triangles=1095 ... disabled_objects=33
+```
+
+Five independent predictions, all met:
+
+| prediction | observed |
+| --- | --- |
+| the global is readable at `0x80445C20` | snapshot taken, no read error |
+| object 33 reports **disabled** | `disabled=33` |
+| wall triangles drop by exactly 2 | 1097 → **1095** |
+| the cave pocket joins a **1861**-node component | `build_ok … nodes=1861` |
+| `cause=disconnected` / partial routes stop | last occurrences 00:52 and 01:27, i.e. **before** the fix; none after |
+
+The 1861 figure had been derived statically from the `.ccd` before the game
+was ever run, and the live flood reproduced it exactly. `LiveObjectEnableState`
+is therefore **live-validated**, not merely derived.
+
+This is evidence about the *mechanism*, not a rule about Agate. Nothing in the
+companion knows that object 33 is a cave doorway; it knows that CCD entry 33
+reported its disabled bit set. The same code path is what Gateon Port's piers
+will exercise.
+
+### Still open
+- Whether a save/load path can present a floor state whose flags disagree
+  with what the room script would set on a fresh load.
+- The `<other>[48]` array at floor `+0xA00` (stride `0x14`, bit 0 of the
+  `u16` at `+0x10`, cleared for all 48 by `LoadCCD`) is unidentified.
+
 ## Unresolved questions
 
 - Which `.ccd` pointer slots and type values are horizontally solid, walkable, camera-only, or otherwise special?

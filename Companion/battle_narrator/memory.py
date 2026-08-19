@@ -76,13 +76,29 @@ class MemoryReader:
         return pointer
 
     def write_bytes(self, address, data, label="memory", alignment=1):
-        """The only write path in this project. Every other reader/reader
-        method in this codebase is read-only by design; this exists solely
-        for teleport.py's explicitly-scoped, entity-nav-restricted position
-        write, at the project owner's explicit request and with explicit
-        acceptance of the risk (see teleport.py's module docstring)."""
+        """The only write path in this project. Every other method here is
+        read-only by design; writes exist for exactly two explicitly-scoped
+        features, both built at the project owner's explicit request and
+        with explicit acceptance of the risk: `teleport.py`'s entity-nav-
+        restricted position write, and `hero_stick.py`'s hold/release of
+        the engine's own scripted-stick override (see each module's
+        docstring).
+
+        Backend exceptions are converted to this project's `MemoryError`
+        for the same reason `bytes()` above does it: dolphin_memory_engine
+        can raise a raw `RuntimeError` on a transient failure while Dolphin
+        is still running, and every poll loop here already handles
+        `MemoryError`. This matters more for a write than for a read --
+        `hero_stick.release()` runs on teardown paths, including the
+        disconnect handler, and an unconverted exception escaping there
+        would abandon the rest of the teardown with the stick override
+        still latched and the player unable to move."""
         require_range(address, len(data), label, self.profile, alignment)
-        self.backend.write_bytes(address, bytes(data))
+        try:
+            self.backend.write_bytes(address, bytes(data))
+        except Exception as exc:
+            raise MemoryError(
+                f"{label}: write failed at 0x{address:08X}: {exc}") from exc
 
     def gschar(self, address, maximum, label, alignment=1):
         size = (maximum + 1) * 2

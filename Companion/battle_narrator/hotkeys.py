@@ -3,18 +3,10 @@ from dataclasses import dataclass
 import ctypes
 import os
 
-from .health import round_percent, speech_name
+from .health import (
+    STATUS_NAMES, owner_for_battler, round_percent, speech_name,
+)
 from .speech import SpeechEventClass
-
-STATUS_NAMES = {
-    0: None,
-    3: "poisoned",
-    4: "badly poisoned",
-    5: "paralyzed",
-    6: "burned",
-    7: "frozen",
-    8: "asleep",
-}
 
 KEY_CODES = {
     **{chr(value).casefold(): value for value in range(ord("A"), ord("Z") + 1)},
@@ -83,7 +75,23 @@ class WindowsForegroundHotkey:
         self.held = False
 
     def _pressed(self):
-        return all(self.user32.GetAsyncKeyState(code) & 0x8000 for code in self.codes)
+        if not all(self.user32.GetAsyncKeyState(code) & 0x8000
+                   for code in self.codes):
+            return False
+        # A chord means exactly itself: a modifier the chord does not name
+        # must be UP. Without this, `ctrl+slash` is also pressed every time
+        # `ctrl+shift+slash` is -- ctrl and slash are both down -- so the
+        # two chords were never distinguishable, and the shorter one won
+        # wherever a caller tested it first. That is exactly what happened
+        # to entity-nav's refresh: `poll_once` checks `repeat` (ctrl+slash)
+        # before `refresh` (ctrl+shift+slash), so from the day refresh was
+        # added, pressing it re-announced the selection and never rebuilt
+        # the list. Found 2026-08-16 while re-binding autowalk onto that
+        # same chord.
+        return not any(
+            self.user32.GetAsyncKeyState(code) & 0x8000
+            for code in MODIFIER_CODES.values() if code not in self.codes
+        )
 
     def _foreground_process(self):
         hwnd = self.user32.GetForegroundWindow()
@@ -137,12 +145,34 @@ class BattleHPSummary:
                      for sample in samples)
 
     def _ordered(self, samples):
-        by_slot = {sample.identity.slot: sample for sample in samples}
-        return [(ownership, by_slot[slot])
-                for slot, ownership in zip(
-                    self.profile.summary_slot_order,
-                    self.profile.summary_slot_ownership)
-                if slot in by_slot]
+        """(ownership word, sample) for every occupied slot, player side first.
+
+        Ownership is DERIVED, via `health.owner_for_battler`, from which
+        trainer's party array the battler's own FightPokemon record sits in
+        -- not from its index in the active array. The positional
+        `profile.summary_slot_ownership` tuple this used to index is
+        documented in profile.py as unreliable for exactly this purpose: the
+        2026-07-25 handoff recorded the opposite interleaving, and a fixed
+        tuple cannot be right for both. It also cannot survive the active
+        array compacting after a faint, which is when the summary matters
+        most -- ctrl+h would confidently attribute the foe's Pokemon to the
+        player. `owner_for_battler` still falls back to the tuple when the
+        pointer lands outside every party range, which does not happen for a
+        real battler.
+
+        Speaking order is now derived too, rather than read from
+        `summary_slot_order`: the player's battlers first, then the
+        opponent's, each in active-slot order. That is the same order the
+        old tuple produced for an uncompacted field, and unlike the tuple it
+        stays grouped by side after a replacement lands in a different
+        slot."""
+        ordered = []
+        for sample in samples:
+            ownership = owner_for_battler(self.profile, sample)
+            ordered.append((ownership, sample))
+        ordered.sort(
+            key=lambda item: (item[0] != "Player", item[1].identity.slot))
+        return ordered
 
     @staticmethod
     def _line(ownership, sample):
@@ -189,7 +219,8 @@ class BattleHPSummary:
 
 class HeartGaugeSummary:
     """On-demand Shadow Pokemon Heart Gauge check, usable anywhere in the
-    overworld (not battle-only like BattleHPSummary) -- the project owner
+    overworld (not battle-only like BattleHPSummary), covering both the
+    current party and every PC box -- the project owner
     explicitly requested this alongside the party summary screen's own
     passive Heart Gauge narration ("both"), for checking progress while
     just walking around. No settling/two-sample logic is needed here (unlike
@@ -217,17 +248,133 @@ class HeartGaugeSummary:
         if not self.hotkey.poll():
             return
         try:
-            slots = self.source.slots()
+            slots = self.source.shadow_gauge_slots()
         except Exception as exc:
             self.logger.debug("HEART GAUGE read failed: %s", exc)
             return
         shadow = [slot for slot in slots if slot.heart_gauge_percent is not None]
         text = (
             " ".join(self._line(slot) for slot in shadow)
-            if shadow else "No Shadow Pokemon in your party."
+            if shadow else "No Shadow Pokemon have a Shadow Gauge."
         )
         self.speech.emit(SpeechEventClass.ENTITY_NAV, text, interrupt=True)
         self.logger.info("HEART GAUGE %s", text)
+
+
+class PartySlotSummary:
+    """Ctrl+1 through Ctrl+6: everything about one party member, anywhere.
+
+    The party summary SCREEN (party_summary_screen.py) already narrates all
+    of this, but only while that screen is open, and getting there costs
+    several menus. The project owner asked for the same facts on a single
+    key press, from the overworld or from inside a battle, which is what
+    this is: one chord per party slot, no navigation.
+
+    Reads the overworld roster (`PartyMemorySource.slots()`, i.e.
+    Hero.partyPokemon[6]) rather than the battle field. That is deliberate
+    and is the right source for both cases -- the field only ever holds the
+    one or two Pokemon currently out, whereas "what is in slot 4" is a
+    question about the roster, and the roster struct is the same one the
+    game itself writes HP and status back into during a battle.
+
+    `item_names` is optional and duck-typed on `resolve_name(item_id)`
+    (production passes `item_database.ItemNameResolver`). Without it, or
+    for an ID it cannot resolve, the raw ID is spoken rather than a guessed
+    name -- the same policy party_summary_screen.py already follows.
+
+    **The ability is deliberately NOT spoken here (removed 2026-08-18).**
+    It was in the first version of this readout; the project owner reported
+    it as wrong -- "it's not accurate anyways" -- so it is gone rather than
+    left in with a caveat. A stated fact a player cannot trust is worse
+    than an absent one: they either act on it and are misled, or they learn
+    to discount the whole utterance, which costs the fields that ARE
+    correct.
+
+    This is a removal, not a fix. `PartySlot.ability_name` still carries
+    the same value, `party_summary_screen.py`'s Status page still speaks
+    it, and the resolution chain in `resolver.LocalAbilityData` is
+    untouched -- so whatever is wrong there is still wrong, and still
+    reaches the player by that route. Diagnosing it needs a live sample of
+    a Pokemon whose real ability is known; see the coverage matrix entry.
+    """
+
+    def __init__(self, source, hotkeys, speech, logger, item_names=None):
+        self.source = source
+        self.hotkeys = dict(hotkeys)
+        self.speech = speech
+        self.logger = logger
+        self.item_names = item_names
+
+    def clear(self, reason):
+        self.logger.debug("PARTY SLOT CLEAR reason=%s", reason)
+
+    def _item_text(self, item_id):
+        if not item_id:
+            return "No item held."
+        if self.item_names is not None:
+            try:
+                name = self.item_names.resolve_name(item_id)
+            except Exception:
+                name = None
+            if name:
+                return f"Holding {speech_name(name)}."
+        return f"Holding item {item_id}."
+
+    def line(self, index, slot):
+        """Everything one press should say. `slot` is None for an empty
+        party position."""
+        position = f"Slot {index + 1}"
+        if slot is None:
+            return f"{position} is empty."
+        _, percentage = round_percent(slot.hp, slot.max_hp)
+        percent = "zero percent" if percentage == 0 else f"{percentage} percent"
+        pieces = [
+            f"{position}. {speech_name(slot.raw_nickname)}",
+            f"level {slot.level}",
+            f"{slot.hp} of {slot.max_hp} HP",
+            percent,
+        ]
+        if slot.hp == 0:
+            pieces.append("fainted")
+        status = STATUS_NAMES.get(slot.condition)
+        if status is not None:
+            pieces.append(status)
+        text = ", ".join(pieces) + "."
+        if slot.heart_gauge_percent is not None:
+            text += (
+                " Heart Gauge: fully open, ready to purify."
+                if slot.heart_gauge_percent >= 100
+                else f" Heart Gauge: {slot.heart_gauge_percent} percent open."
+            )
+        text += f" {self._item_text(slot.item_id)}"
+        return text
+
+    def poll_once(self):
+        pressed = [index for index, hotkey in sorted(self.hotkeys.items())
+                   if hotkey.poll()]
+        if not pressed:
+            return
+        if len(pressed) > 1:
+            # Two party chords in one tick is not a thing a player does on
+            # purpose; answering the first keeps the reply deterministic
+            # instead of speaking two summaries over each other.
+            self.logger.debug("PARTY SLOT multiple chords %r", pressed)
+        index = pressed[0]
+        try:
+            slots = {slot.index: slot for slot in self.source.slots()}
+        except Exception as exc:
+            # Spoken, not silent. The player pressed a key: silence reads
+            # as "the companion is broken" and is indistinguishable from a
+            # dead hotkey, which is precisely the failure this feature is
+            # meant to remove.
+            self.logger.debug("PARTY SLOT read failed: %s", exc)
+            self.speech.emit(
+                SpeechEventClass.ENTITY_NAV,
+                "Party is not available right now.", interrupt=True)
+            return
+        text = self.line(index, slots.get(index))
+        self.speech.emit(SpeechEventClass.ENTITY_NAV, text, interrupt=True)
+        self.logger.info("PARTY SLOT %d %s", index + 1, text)
 
 
 class MoneySummary:

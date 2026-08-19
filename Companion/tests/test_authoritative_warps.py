@@ -11,6 +11,7 @@ from battle_narrator.authoritative_warps import (
     AuthoritativeElevatorEntitySource,
     AuthoritativePCEntitySource,
     AuthoritativeTextEntitySource,
+    AuthoritativeWarpEntitySource,
     parse_door_records,
     parse_elevator_records,
     parse_interactable_region_centers,
@@ -244,35 +245,48 @@ class AuthoritativeDoorEntitySourceTests(unittest.TestCase):
                 FakeMemory(0x8F), FakeProfile(), FakePoseSource(), records,
                 directory, {0x8F: "room"}, warp_records=warp_records,
             )
-            return source.entities()[0]
+            return source.entities()
 
-    def test_a_door_sharing_a_warps_region_is_published_silent(self):
-        """The project owner's 2026-08-10 request. Such a door IS the warp
-        -- same trigger region -- so beaconing both played two sounds from
-        one point. The entity survives; only its sound goes."""
+    def _one_door_in_room(self, warp_records):
+        entities = self._door_in_room(warp_records)
+        self.assertEqual(len(entities), 1, entities)
+        return entities[0]
+
+    def test_a_door_sharing_a_warps_region_is_not_published_at_all(self):
+        """Two requests, one week apart, on the same records.
+
+        2026-08-10: such a door IS the warp -- same trigger region -- so
+        beaconing both played two sounds from one point. Fixed then by
+        publishing it silent.
+
+        2026-08-18: "take doors that are also warps out of the item nav."
+        Silent-but-present still put it in the Doors cycle, duplicating a
+        spot the Exits category already lists WITH its destination named --
+        strictly less informative than the entry it duplicated. It is now
+        dropped outright.
+        """
         warps = parse_warp_records(interaction(script=4, room=0x8F), 0, 1)
-        entity = self._door_in_room(warps)
-        self.assertIs(entity.metadata["warp_attached"], True)
-        self.assertIs(entity.metadata["beacon"], False)
+        self.assertEqual(self._door_in_room(warps), [])
 
     def test_a_door_of_its_own_still_beacons(self):
         # Same room as a warp, but a DIFFERENT region: an interior door,
-        # not an entrance. Untouched.
+        # not an entrance. This is what the Doors category is now FOR, and
+        # what its beacon has always meant.
         warps = parse_warp_records(
             interaction(script=4, room=0x8F, region=10), 0, 1)
-        entity = self._door_in_room(warps)
+        entity = self._one_door_in_room(warps)
         self.assertIs(entity.metadata["warp_attached"], False)
         self.assertNotIn("beacon", entity.metadata)
 
     def test_a_warp_in_the_same_region_of_another_room_does_not_match(self):
         # Region indices are per-room, so comparing on region alone would
-        # silence doors all over the game.
+        # drop interior doors all over the game.
         warps = parse_warp_records(interaction(script=4, room=0x90), 0, 1)
-        self.assertIs(self._door_in_room(warps).metadata["warp_attached"],
-                      False)
+        self.assertIs(
+            self._one_door_in_room(warps).metadata["warp_attached"], False)
 
     def test_no_warp_table_leaves_every_door_beaconing(self):
-        self.assertNotIn("beacon", self._door_in_room(()).metadata)
+        self.assertNotIn("beacon", self._one_door_in_room(()).metadata)
 
 
 class PCRecordTests(unittest.TestCase):
@@ -379,6 +393,102 @@ class CollisionRegionTests(unittest.TestCase):
         struct.pack_into(">II", data, 0, 0x100, 1)
         with self.assertRaises(ValueError):
             parse_interactable_region_centers(bytes(data))
+
+
+class RegionCarriedEndToEndTests(unittest.TestCase):
+    """Every region-backed source must hand its authoritative `Region` to
+    navigation, not just a point.
+
+    This is what makes `VERIFIED` mean "an ordinary walkable route reaches
+    the trigger volume". A source that quietly omits it silently downgrades
+    its entities to the point path, where arrival is judged against a
+    4-unit radius around one coordinate instead of the region the player
+    actually has to walk into -- and nothing else in the suite would notice.
+
+    Warps were wired first; doors, elevators, PCs and signs followed on
+    2026-08-12. The parameterisation is deliberate: a sixth source added
+    later without a region will fail here rather than pass by omission."""
+
+    def _source(self, cls, records, room_id, directory, region):
+        (Path(directory) / "room.ccd").write_bytes(
+            ccd_with_triangle(region=region))
+        return cls(FakeMemory(room_id), FakeProfile(), FakePoseSource(),
+                   records, directory, {room_id: "room"})
+
+    def test_every_region_backed_source_carries_its_region(self):
+        cases = (
+            ("elevator", AuthoritativeElevatorEntitySource,
+             parse_elevator_records(elevator_interaction(room=0x8A, region=7),
+                                    0, 1), 7, 0x8A),
+            ("sign", AuthoritativeTextEntitySource,
+             parse_text_records(
+                 interaction(script=0x0C, room=0x8F, target=401), 0, 1),
+             9, 0x8F),
+            ("pc", AuthoritativePCEntitySource,
+             parse_pc_records(
+                 interaction(script=0x0E, room=0x8F, target=301), 0, 1),
+             9, 0x8F),
+            ("door", AuthoritativeDoorEntitySource,
+             parse_door_records(interaction(script=5, room=0x8F, target=201), 0, 1),
+             9, 0x8F),
+        )
+        for name, cls, records, region, room_id in cases:
+            with self.subTest(source=name):
+                with tempfile.TemporaryDirectory() as directory:
+                    source = self._source(
+                        cls, records, room_id, directory, region)
+                    entities = source.entities()
+                    self.assertTrue(entities, f"{name} produced no entity")
+                    carried = entities[0].metadata.get("region")
+                    self.assertIsNotNone(
+                        carried,
+                        f"{name} entities reach navigation without their "
+                        f"region -- they will be routed as bare points")
+                    self.assertTrue(
+                        getattr(carried, "triangles", None),
+                        f"{name} carried a region with no geometry")
+
+    def test_every_source_accepts_the_reachability_oracle(self):
+        """**Live crash 2026-08-13 00:23.** `AuthoritativeDoorEntitySource`
+        defines its own `__init__` for `warp_records` and did not gain the
+        `reachability` parameter its base class did, so the narrator died on
+        startup with `TypeError: unexpected keyword argument 'reachability'`
+        -- every feature lost, not just doors.
+
+        The suite was green: the other sources were exercised, and the door
+        source was only ever constructed in tests WITHOUT the new argument.
+        This constructs each one the way `phase1b_app` actually does."""
+        for cls in (AuthoritativeWarpEntitySource,
+                    AuthoritativeDoorEntitySource,
+                    AuthoritativeElevatorEntitySource,
+                    AuthoritativePCEntitySource,
+                    AuthoritativeTextEntitySource):
+            with self.subTest(source=cls.__name__):
+                with tempfile.TemporaryDirectory() as directory:
+                    kwargs = {"reachability": lambda room, pos, comp: 1.0}
+                    if cls is AuthoritativeDoorEntitySource:
+                        kwargs["warp_records"] = ()
+                    source = cls(
+                        FakeMemory(0x8F), FakeProfile(), FakePoseSource(), (),
+                        directory, {0x8F: "room"}, None, **kwargs)
+                    self.assertIsNotNone(source.reachability)
+                    self.assertEqual(source.entities(), [])
+
+    def test_the_region_is_the_authoritative_geometry_not_a_centroid(self):
+        """The carried object must be the real `Region`, so navigation can
+        derive arrival tiles from its triangles. A centroid tuple would be
+        accepted silently by `destination_target_tiles` and fall back to the
+        point path."""
+        from battle_narrator.region_geometry import Region
+        records = parse_elevator_records(
+            elevator_interaction(room=0x8A, region=7), 0, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            source = self._source(
+                AuthoritativeElevatorEntitySource, records, 0x8A,
+                directory, 7)
+            region = source.entities()[0].metadata["region"]
+        self.assertIsInstance(region, Region)
+        self.assertIsNotNone(region.nearest_point(0.0, 0.0))
 
 
 if __name__ == "__main__":

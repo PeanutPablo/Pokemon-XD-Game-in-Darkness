@@ -149,9 +149,11 @@ class DialogueMemorySource:
         )
 
 class DialogueReader:
-    def __init__(self,source,speech,logger,debug=False,speaker_name_provider=None):
+    def __init__(self,source,speech,logger,debug=False,speaker_name_provider=None,
+                 message_renderer=None):
         self.source,self.speech,self.logger,self.debug=source,speech,logger,debug
         self.speaker_name_provider=speaker_name_provider
+        self.message_renderer=message_renderer
         self.active=False; self.last_page_key=None; self.last_text=None; self.last_transient_reason=None
     def clear(self,reason):
         if self.active and self.debug: self.logger.debug("DIALOGUE CLOSED reason=%s",reason)
@@ -185,8 +187,12 @@ class DialogueReader:
             self.active=True; return
         try: text=decode_page(snapshot.raw,player_name)
         except DialogueDecodeError as exc:
-            if self.debug: self.logger.warning("DIALOGUE PAGE SUPPRESSED start=0x%08X raw=%s reason=%s",snapshot.page_start,snapshot.raw.hex(),exc)
-            self.last_page_key=snapshot.page_key; self.active=True; return
+            rendering = (self.message_renderer.render_bytes(snapshot.raw)
+                         if self.message_renderer is not None else None)
+            if rendering is None or not rendering.is_speakable:
+                if self.debug: self.logger.warning("DIALOGUE PAGE SUPPRESSED start=0x%08X raw=%s reason=%s rendering=%r",snapshot.page_start,snapshot.raw.hex(),exc,rendering)
+                self.last_page_key=snapshot.page_key; self.active=True; return
+            text = rendering.text
         if self.debug: self.logger.debug("DIALOGUE PAGE task=0x%08X start=0x%08X end=0x%08X text=%r raw=%s",snapshot.task,snapshot.page_start,snapshot.page_end,text,snapshot.raw.hex())
         name=(self.speaker_name_provider() if self.speaker_name_provider is not None else None)
         if name: text=f"{name}: {text}"

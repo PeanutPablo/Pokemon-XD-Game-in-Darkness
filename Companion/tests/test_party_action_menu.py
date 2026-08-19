@@ -2,7 +2,11 @@ import logging
 import unittest
 
 from battle_narrator.memory import MemoryReader
-from battle_narrator.party_action_menu import PartyActionMenuReader
+from battle_narrator.party_action_menu import (
+    POKEMON_ABILITY_OFFSET, POKEMON_DATA, POKEMON_DATA_NUMBER,
+    POKEMON_DATA_STRIDE, POKEMON_NAME_OFFSET, PartyActionMenuReader,
+    stone_selection_labels,
+)
 from battle_narrator.profile import XD_US_REV0
 
 
@@ -26,6 +30,62 @@ class Speech:
     def __init__(self): self.calls = []
     def emit(self, event, text, interrupt=None):
         self.calls.append((event, text, interrupt))
+
+
+class StoneDataMemory:
+    def __init__(self):
+        self.count_address = 0x80001000
+        self.base = 0x80002000
+        self.words = {self.count_address: 300}
+        self.bytes = {}
+
+    def pointer(self, address, *_args):
+        return {POKEMON_DATA_NUMBER: self.count_address,
+                POKEMON_DATA: self.base}[address]
+
+    def u32(self, address, _label):
+        return self.words[address]
+
+    def u8(self, address, _label):
+        return self.bytes.get(address, 0)
+
+
+class DictResolver:
+    def __init__(self, values): self.values = values
+    def resolve_name(self, key): return self.values.get(key)
+    def resolve(self, key): return self.values.get(key)
+
+
+class AbilityResolver:
+    def __init__(self, values): self.values = values
+    def resolve(self, _memory, _profile, key): return self.values[key], ""
+
+
+class StoneSelectionLabelTests(unittest.TestCase):
+    def test_reads_species_and_abilities_from_the_loaded_build(self):
+        memory = StoneDataMemory()
+        species = (134, 135, 136, 197, 196)
+        for index, species_id in enumerate(species):
+            record = memory.base + species_id * POKEMON_DATA_STRIDE
+            memory.words[record + POKEMON_NAME_OFFSET] = 5000 + species_id
+            memory.bytes[record + POKEMON_ABILITY_OFFSET] = 80 + index
+        labels = stone_selection_labels(
+            memory, XD_US_REV0,
+            DictResolver(dict(zip(
+                XD_US_REV0.stone_selection_item_ids,
+                ("Water Stone", "Thunderstone", "Fire Stone",
+                 "Moon Shard", "Sun Shard")))),
+            DictResolver(dict(zip(
+                (5000 + value for value in species),
+                ("Vaporeon", "Jolteon", "Flareon", "Umbreon", "Espeon")))),
+            AbilityResolver({80: "Hydration", 81: "Volt Absorb",
+                             82: "Flash Fire", 83: "Synchronize",
+                             84: "Magic Bounce"}),
+        )
+        self.assertEqual(labels[0],
+                         "Water Stone: Vaporeon, ability Hydration")
+        self.assertEqual(labels[-1],
+                         "Sun Shard: Espeon, ability Magic Bounce")
 
 
 class PartyActionMenuReaderTests(unittest.TestCase):
@@ -270,7 +330,8 @@ class StoneSelectionMenuReaderTests(unittest.TestCase):
             self.memory, self.profile, self.speech,
             logging.getLogger("stone-selection-menu-test"),
             menu_id=self.profile.stone_selection_menu_id,
-            labels=self.profile.stone_selection_labels)
+            labels=("Water Stone", "Thunderstone", "Fire Stone",
+                    "Moon Shard", "Sun Shard"))
 
     def _put_window(self, address, menu_id, index, next_address=0):
         p = self.profile
@@ -290,7 +351,7 @@ class StoneSelectionMenuReaderTests(unittest.TestCase):
 
     def test_each_option_announced_by_confirmed_index(self):
         expected = {
-            0: "Water Stone.", 1: "Thunder Stone.", 2: "Fire Stone.",
+            0: "Water Stone.", 1: "Thunderstone.", 2: "Fire Stone.",
             3: "Moon Shard.", 4: "Sun Shard.",
         }
         for index, label in expected.items():

@@ -62,7 +62,8 @@ class PartySummaryScreenReaderTests(unittest.TestCase):
         self.source = Source(sample_slot())
         self.reader = PartySummaryScreenReader(
             self.memory, self.profile, self.source, self.speech,
-            logging.getLogger("party-summary-screen-test"))
+            logging.getLogger("party-summary-screen-test"),
+            key_state=lambda _key: False)
 
     def _put_window(self, address, menu_id, page, next_address=0):
         p = self.profile
@@ -168,7 +169,7 @@ class PartySummaryScreenReaderTests(unittest.TestCase):
         self.assertEqual(
             self.speech.calls[-1][1], "Moves. Tackle, 35 P P; Tail Whip, 29 P P.")
 
-    def test_moves_page_reads_full_list_then_each_focused_candidate(self):
+    def test_forget_move_overlay_reads_initial_and_changed_focus(self):
         summary, learning = 0x80700000, 0x80700100
         self._put_window(summary, 94, 2, next_address=learning)
         self._put_window(learning, self.profile.move_learning_menu_id, 0)
@@ -179,16 +180,23 @@ class PartySummaryScreenReaderTests(unittest.TestCase):
         self.reader.poll_once()
         self.assertEqual(
             self.speech.calls[-1][1],
-            "Moves. Tackle, 35 P P; Tail Whip, 29 P P.",
+            "Choose a move to forget. Selected move 1 of 2. Tackle, 35 P P.",
         )
-        # The initially focused row is already part of the overview. Moving
-        # to another row announces just that row.
-        self.backend.put(
-            learning + self.profile.window_cursor_offset, be16(1)
-        )
+        keys = {"up": False, "down": True}
+        self.reader.key_state = keys.get
         self.reader.poll_once()
         self.assertEqual(
-            self.speech.calls[-1][1], "Tail Whip, 29 P P.")
+            self.speech.calls[-1][1],
+            "Move 2 of 2. Tail Whip, 29 P P.",
+        )
+        keys["down"] = False
+        self.reader.poll_once()
+        keys["down"] = True
+        self.reader.poll_once()
+        self.assertEqual(
+            self.speech.calls[-1][1],
+            "Move 1 of 2. Tackle, 35 P P.",
+        )
 
     def test_ribbons_page_announces_page_name(self):
         self._put_window(0x80700000, 94, 3)

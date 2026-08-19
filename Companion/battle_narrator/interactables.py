@@ -117,10 +117,9 @@ def load_records(path):
 class RoomScriptInteractableSource:
     """Entity source for room-script objects, or for their hazards.
 
-    One source class, two instances: `category="interact"` publishes the
-    press-A objects and `category="hazard"` publishes the hazards, so the
-    navigator's two categories stay independent while the record parsing,
-    the geometry and the state model exist once."""
+    Separate category-filtered instances publish press-A objects and hazards,
+    so the navigator's categories stay independent while the record parsing,
+    geometry, and state model exist once."""
 
     def __init__(self, memory, profile, pose_source, records, collision_dir,
                  room_codes, category=INTERACT_CATEGORY, logger=None):

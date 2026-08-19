@@ -49,9 +49,36 @@ great many, and unlike an NPC or an item they are rarely the thing being
 looked for -- so at parity they crowd out the categories that matter. This
 is a per-sound mix trim, not a statement about importance."""
 
+def set_passive_beacon_gain(scale):
+    """Set the global passive-beacon volume from the settings menu.
+
+    A function rather than letting another module assign the global
+    directly: `spatial_values` is a staticmethod that reads these two names
+    at call time, so they have to stay module state, and an explicit setter
+    keeps the one place that changes them greppable -- and testable -- from
+    the module that owns them."""
+    global PASSIVE_BEACON_GAIN_SCALE
+    PASSIVE_BEACON_GAIN_SCALE = max(0.0, float(scale))
+
+
+def set_category_gain(category, scale):
+    """Set one category's volume trim (see `set_passive_beacon_gain`)."""
+    PASSIVE_BEACON_CATEGORY_GAIN[category] = max(0.0, float(scale))
+
+
 PASSIVE_BEACON_SOUND_FILES = {
     "npc": "npcs.wav",
-    "pokemart": "pokemarts.wav",
+    # "pokemart": "pokemarts.wav" -- REMOVED 2026-08-18 with the role
+    # labelling it depended on (see phase1b_app's `npc_sound_factory`). The
+    # only thing that ever produced this category was a room-id guess, so
+    # every NPC in a Mart sounded like the clerk. `sounds/pokemarts.wav` is
+    # still in the repo and this line is the whole of what needs restoring
+    # once a clerk can actually be detected.
+    #
+    # Removed here rather than merely left unproduced, because this dict is
+    # also what `phase1b_app.build_sound_library` builds the Sound library
+    # from, and that catalogue's own rule is that it must never name a cue
+    # nothing plays.
     "item": "items.wav",
     "door": "doors.wav",
     "warp": "warps.wav",
@@ -79,6 +106,32 @@ ENTITY_SOUND_FILES = {
     "pokebox": "263128__mossy4__tone-beep-amb-verb.wav",
     "elevator": "263131__mossy4__tone-beep-slower-lower-amb-verb.wav",
 }
+
+
+GUIDE_SOUND_FILES = {
+    "beacon": "263126__mossy4__tone-beep-lower-slower.wav",
+    "navigation": ENTITY_SOUND_FILES["item"],
+    "waypoint": "263124__mossy4__sine-octaves-up-beep.wav",
+}
+"""The three navigation cues, from `Companion/assets/npc_sounds_loud/`
+(NOT the `sounds/` directory the passive beacons use -- these are the
+louder pre-boosted copies, because a cue the player deliberately switched
+on has to carry over the ambient ones).
+
+"beacon" is ctrl+G's straight-line guide, "navigation" is ctrl+N's routed
+one -- deliberately different files so the two modes are distinguishable
+by ear alone -- and "waypoint" fires when the routed guide reaches a
+corner. Named here rather than spelled into `phase1b_app`'s guide factory
+because the sound library has to offer exactly these files as listenable
+examples, and a second copy of the filenames is a second thing to keep in
+step."""
+
+def resolve_guide_sound_dir(companion_dir):
+    """Where `GUIDE_SOUND_FILES` live, relative to `Companion/`.
+
+    Unlike `resolve_sound_dir` below there is no release-versus-checkout
+    ambiguity here: `assets/` ships inside `Companion/` in both layouts."""
+    return Path(companion_dir) / "assets" / "npc_sounds_loud"
 
 
 def resolve_sound_dir(companion_dir):
@@ -177,6 +230,14 @@ class NPC:
     category: str = "npc"
     label: str | None = None
     people_info_id: int = 0
+    live_actor_present: bool | None = None
+    """Whether the production room-NPC source found a matching live actor.
+
+    ``False`` means the entity exists only in the room's static placement
+    table. Story transitions can leave old named characters there after
+    their actor has despawned, so such a record must not trigger an
+    "interaction available" announcement. ``None`` preserves sources that
+    are not backed by people-work actors (warps, items, and test fixtures)."""
     """The NPC's TYPE id (floor_character + 0x06), the index into the
     people-info table that supplies its model and talk distance.
 
@@ -397,6 +458,7 @@ class NPCMemorySource:
                     record + p.floor_character_name_offset, "NPC name ID"),
                 talk_distance,
                 people_info_id=people_info_id,
+                live_actor_present=actor is not None,
             ))
         item = ITEMS.get(floor_id)
         if item is not None:
@@ -1014,6 +1076,12 @@ class NPCSoundReader:
                 npc.interaction_radius
                 + self.interaction_allowance
             )
+            # A missing live actor is authoritative for interaction
+            # readiness. The static floor-character table is deliberately
+            # retained for passive navigation, but it contains stale story
+            # characters (observed on tower top as a despawned Mirror B.
+            # record at the player's position).
+            and npc.live_actor_present is not False
         }
         nearest = (
             min(interaction, key=lambda item: available[item][1][0])

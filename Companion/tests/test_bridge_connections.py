@@ -1,10 +1,12 @@
 """Live bridge connection points for Gateon Port's rotating piers.
 
-`PolarityTests` is the one that matters. Reading `enable == 1` backwards
-would point a blind player at a wall in every alignment, so the polarity is
-pinned against two independently-produced sources -- the game's own
-`pier_def` table and the `ALIGNMENTS` prose written from the real game --
-and the test fails loudly if they ever stop agreeing.
+`PolarityTests` is the one that matters. Reading `enable` backwards points
+a blind player at a wall in every alignment, and this project did exactly
+that from 2026-08-09 to 2026-08-18. The tests here now pin the evidence
+that actually decides it -- what the collision data IS -- rather than the
+`ALIGNMENTS` prose that used to be the oracle, which turned out to be a
+field-for-field restatement of the same enable bits and so agreed with
+whichever reading produced it.
 
 `RealRoomTests` run against the project owner's own extracted `M6_out`
 data when it is present, and skip cleanly when it is not, so this file is
@@ -18,15 +20,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from battle_narrator.bridge_connections import (
-    BRIDGE_FLAG, BridgeConnectionEntitySource, Deck, Segment, derive_layout,
-    parse_pier_enable_table,
+    BLOCKED, BRIDGE_FLAG, OPEN, BridgeConnectionEntitySource, Deck, Segment,
+    derive_layout, interior_facing_entries, parse_pier_enable_table,
 )
 from battle_narrator.collision_probe import (
     parse_environment_triangles, parse_walk_model_triangles,
 )
-from battle_narrator.gateon_bridge import ALIGNMENTS
 from battle_narrator.npc_beacons import PlayerPose, Position
 from battle_narrator.profile import XD_US_REV0
+
+
+# The retired `gateon_bridge.py`'s alignment table. NO LONGER AN ORACLE --
+# it is a restatement of the enable bits (state 0's "north and west" is
+# exactly {24, 27}; "centre open" is exactly `26 == 1`), so it agrees with
+# whichever polarity was used to write it and can decide nothing. Kept only
+# so `test_the_retired_prose_cannot_decide_the_polarity` can demonstrate
+# that, and so nobody reinstates it as evidence a third time.
+ALIGNMENTS = {
+    0: ("north and west", "east and west", False),
+    1: ("south and west", "north and south", False),
+    2: ("east and south", "east and west", True),
+    3: ("east and north", "north and south", True),
+}
 
 
 COMPANION = Path(__file__).parents[1]
@@ -131,7 +146,8 @@ def make_source(table, alignment=0, room=GATEON_ROOM, pose=None, logger=None):
     return source
 
 
-ALL_ON = {0: {entry: 1 for entry in range(1, 10)}}
+ALL_OPEN = {0: {entry: OPEN for entry in range(1, 10)}}
+"""Every blocker switched off, i.e. every direction crossable."""
 
 
 class TableParsingTests(unittest.TestCase):
@@ -235,25 +251,48 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(segments, ())
 
 
+def row(*blocked):
+    """One alignment row: the named entries blocked, the rest open."""
+    return {entry: (BLOCKED if entry in blocked else OPEN)
+            for entry in range(1, 10)}
+
+
 class PublicationTests(unittest.TestCase):
-    def test_only_currently_enabled_connections_are_published(self):
-        table = {0: {1: 1, 2: 0, 3: 0, 4: 1, 5: 0, 6: 1, 7: 1, 8: 0, 9: 0}}
-        entities = make_source(table).entities()
+    def test_only_currently_open_connections_are_published(self):
+        # Entries 1 and 4 have their blockers switched ON, so they are the
+        # two that must NOT appear. This is the case that was inverted.
+        entities = make_source({0: row(1, 4)}).entities()
         self.assertEqual(
-            sorted(e.identity[1] for e in entities), [1, 4, 6, 7])
+            sorted(e.identity[1] for e in entities), [2, 3, 5, 6, 7, 8, 9])
+
+    def test_a_blocked_direction_is_never_published(self):
+        for blocked in range(1, 10):
+            with self.subTest(blocked=blocked):
+                published = [
+                    e.identity[1]
+                    for e in make_source({0: row(blocked)}).entities()]
+                self.assertNotIn(blocked, published)
+
+    def test_an_entry_this_alignment_does_not_mention_is_withheld(self):
+        # Not open, not blocked, not known. A connection that cannot be
+        # shown to be open must not be offered.
+        table = {0: {entry: OPEN for entry in range(1, 10) if entry != 5}}
+        published = [e.identity[1] for e in make_source(table).entities()]
+        self.assertNotIn(5, published)
 
     def test_a_rotation_replaces_the_published_connections(self):
-        table = {
-            0: {1: 1, 2: 0, 3: 0, 4: 1, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0},
-            1: {1: 0, 2: 1, 3: 1, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0},
-        }
+        table = {0: row(1, 4), 1: row(2, 3)}
         source = make_source(table)
-        self.assertEqual(sorted(e.identity[1] for e in source.entities()), [1, 4])
+        self.assertEqual(
+            sorted(e.identity[1] for e in source.entities()),
+            [2, 3, 5, 6, 7, 8, 9])
         source.flag_reader.value_by_flag[BRIDGE_FLAG] = 1
-        self.assertEqual(sorted(e.identity[1] for e in source.entities()), [2, 3])
+        self.assertEqual(
+            sorted(e.identity[1] for e in source.entities()),
+            [1, 4, 5, 6, 7, 8, 9])
 
     def test_a_rotation_advances_the_generation(self):
-        table = {0: {1: 1}, 1: {1: 1}}
+        table = {0: {1: OPEN}, 1: {1: OPEN}}
         source = make_source(table)
         source.entities()
         first = source.generation
@@ -262,20 +301,20 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(source.generation, first + 1)
 
     def test_repeated_queries_in_one_alignment_do_not_advance_it(self):
-        source = make_source(ALL_ON)
+        source = make_source(ALL_OPEN)
         for _ in range(5):
             source.entities()
         self.assertEqual(source.generation, 1)
 
     def test_another_room_publishes_nothing(self):
-        self.assertEqual(make_source(ALL_ON, room=0x86).entities(), [])
+        self.assertEqual(make_source(ALL_OPEN, room=0x86).entities(), [])
 
     def test_an_alignment_the_script_does_not_define_publishes_nothing(self):
         source = make_source({0: {1: 1}}, alignment=7)
         self.assertEqual(source.entities(), [])
 
     def test_an_unreadable_flag_publishes_nothing(self):
-        source = make_source(ALL_ON)
+        source = make_source(ALL_OPEN)
 
         class Broken:
             def value(self, flag):
@@ -287,25 +326,25 @@ class PublicationTests(unittest.TestCase):
     def test_connections_carry_no_interaction_radius(self):
         # Walk-into, not press-A: inventing a radius would make entity nav
         # promise "Interaction available" for something A does nothing to.
-        for entity in make_source(ALL_ON).entities():
+        for entity in make_source(ALL_OPEN).entities():
             self.assertIsNone(entity.interaction_distance)
 
     def test_position_uses_the_deck_walk_height_not_the_wall_top(self):
         # The hit models are tall; the player's Y is their feet. Using the
         # geometry's own Y would report every connection as "above".
-        for entity in make_source(ALL_ON).entities():
+        for entity in make_source(ALL_OPEN).entities():
             self.assertLess(abs(entity.position.y), 1.0)
 
     def test_interaction_position_is_the_nearest_point_not_the_centre(self):
         # Entry 2 is the north span, z 112..160, centred at z=136.
-        source = make_source(ALL_ON, pose=Pose(x=0.0, z=90.0))
+        source = make_source(ALL_OPEN, pose=Pose(x=0.0, z=90.0))
         entity = next(e for e in source.entities() if e.identity[1] == 2)
         self.assertAlmostEqual(entity.position.z, 136.0, places=3)
         self.assertAlmostEqual(
             entity.metadata["interaction_position"].z, 112.0, places=3)
 
     def test_the_nearest_point_tracks_the_player(self):
-        table = ALL_ON
+        table = ALL_OPEN
         near = make_source(table, pose=Pose(x=0.0, z=90.0))
         far = make_source(table, pose=Pose(x=0.0, z=200.0))
         near_z = next(
@@ -323,64 +362,165 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(source.entities(), [])
 
 
+class DeadEndTests(unittest.TestCase):
+    """Open is necessary but not sufficient: a gate onto nothing is not a
+    place to walk to.
+
+    In the synthetic layout entry 3 is the northern deck's south gate and
+    entry 6 the southern deck's north gate -- the two that face each other
+    across the centre passage, entry 9.
+    """
+
+    def published(self, table):
+        return sorted(e.identity[1] for e in make_source(table).entities())
+
+    def test_the_interior_gates_are_derived_from_the_deck_positions(self):
+        decks, segments = synthetic_layout()
+        self.assertEqual(
+            sorted(interior_facing_entries(decks, segments)), [3, 6])
+
+    def test_an_interior_gate_is_withheld_when_the_passage_is_blocked(self):
+        published = self.published({0: row(9)})
+        self.assertNotIn(3, published)
+        self.assertNotIn(6, published)
+        self.assertNotIn(9, published)
+        # Everything facing outward is unaffected.
+        self.assertEqual(published, [1, 2, 4, 5, 7, 8])
+
+    def test_the_passage_is_withheld_when_no_interior_gate_is_open(self):
+        published = self.published({0: row(3, 6)})
+        self.assertNotIn(9, published)
+        self.assertEqual(published, [1, 2, 4, 5, 7, 8])
+
+    def test_one_open_interior_gate_keeps_both_it_and_the_passage(self):
+        published = self.published({0: row(6)})
+        self.assertIn(3, published)
+        self.assertIn(9, published)
+
+    def test_a_fully_open_middle_publishes_the_whole_crossing(self):
+        published = self.published({0: row()})
+        self.assertEqual(published, [1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+    def test_a_layout_without_two_decks_withholds_nothing(self):
+        # The safe direction: with no derivable interior, no gate is
+        # dropped, which is the behaviour before this rule existed.
+        self.assertEqual(interior_facing_entries((), ()), frozenset())
+
+
 class PolarityTests(unittest.TestCase):
     """Does `enable == 1` mean CONNECTED or BLOCKED?
 
-    Getting this backwards sends a blind player at a wall in every
-    alignment, so it is settled against two sources produced independently
-    of each other: the game's own `pier_def` table, and the `ALIGNMENTS`
-    prose in `gateon_bridge.py`, written by whoever built that reader from
-    the real game.
+    BLOCKED. Getting this backwards points a blind player at a wall in
+    every alignment, and this project shipped it backwards from 2026-08-09
+    until the project owner reported it on 2026-08-18.
 
-    The prose is used here ONLY as an oracle. It is not production data for
-    this category -- every label the source speaks is derived from
-    geometry.
+    The tests below pin the evidence that actually decides it -- what the
+    room's collision data IS -- plus a demonstration of why the evidence
+    originally used could not decide anything.
     """
 
     ORDER = ("north", "east", "south", "west")
 
     @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
-    def test_connected_polarity_agrees_with_the_shipped_alignment_prose(self):
-        table = parse_pier_enable_table(
+    def setUp(self):
+        self.table = parse_pier_enable_table(
             SCRIPT.read_text(encoding="utf-8", errors="replace"))
-        data = COLLISION.read_bytes()
+        self.data = COLLISION.read_bytes()
+        self.entries = {
+            entry for r in self.table.values() for entry in r}
+
+    @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
+    def test_no_pier_object_is_walkable(self):
+        """The decisive fact. A thing you cannot stand on is not a
+        connection -- entries 23-31 contribute nothing to the walk model
+        and exist only as collision geometry."""
+        walk = parse_walk_model_triangles(self.data)
+        walkable = {triangle.entry_index for triangle in walk}
+        self.assertEqual(sorted(self.entries & walkable), [])
+        # The surfaces that ARE walkable here are the two decks and the
+        # ground mesh, so the room is not simply missing a walk model.
+        self.assertTrue({58, 59}.issubset(walkable))
+
+    @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
+    def test_most_pier_objects_are_zero_thickness_planes(self):
+        """A quad collapsed onto a single plane has no footprint to stand
+        on. Seven of the nine are gates -- six across the 20-unit opening
+        in one side of a pier's railing, plus the centre passage. Only 23
+        and 24 are closed volumes, and neither is walkable either."""
+        environment = parse_environment_triangles(self.data)
+        flat = []
+        for entry in sorted(self.entries):
+            triangles = [t for t in environment if t.entry_index == entry]
+            self.assertTrue(triangles, f"entry {entry} has no hit geometry")
+            points = [v for t in triangles for v in t.vertices]
+            width = max(p[0] for p in points) - min(p[0] for p in points)
+            depth = max(p[2] for p in points) - min(p[2] for p in points)
+            if min(width, depth) < 1.0:
+                flat.append(entry)
+        self.assertEqual(flat, [25, 26, 27, 28, 29, 30, 31])
+        self.assertEqual(sorted(set(self.entries) - set(flat)), [23, 24])
+
+    @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
+    def test_the_crossing_between_the_piers_is_possible_under_blocked(self):
+        """The corrected reading makes the puzzle solvable; the old one did
+        not. Crossing between the piers passes three gates in a line: the
+        northern deck's south gate, the centre passage, and the southern
+        deck's north gate. Under `1 == blocked` exactly one alignment opens
+        all three. Under `1 == connected` no alignment ever did, which
+        would make the two piers permanently uncrossable."""
         decks, segments = derive_layout(
-            parse_walk_model_triangles(data), parse_environment_triangles(data),
-            {entry for row in table.values() for entry in row})
+            parse_walk_model_triangles(self.data),
+            parse_environment_triangles(self.data), self.entries)
+        chain = set(interior_facing_entries(decks, segments)) | {
+            s.entry_index for s in segments if s.deck is None}
+        self.assertEqual(sorted(chain), [25, 26, 29])
+        crossable = {
+            polarity: [
+                state for state, r in sorted(self.table.items())
+                if all(r[entry] == polarity for entry in chain)
+            ]
+            for polarity in (OPEN, BLOCKED)
+        }
+        self.assertEqual(crossable[OPEN], [0])
+        self.assertEqual(crossable[BLOCKED], [])
+
+    @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
+    def test_the_retired_prose_cannot_decide_the_polarity(self):
+        """Why this was got wrong. `ALIGNMENTS` agrees 12 of 12 with
+        `enable == 1` -- but only because it is a restatement of those very
+        bits, so the agreement is guaranteed and carries no information.
+        The check is kept as a warning, not as evidence."""
+        decks, segments = derive_layout(
+            parse_walk_model_triangles(self.data),
+            parse_environment_triangles(self.data), self.entries)
         by_deck = {}
         for segment in segments:
             if segment.deck is not None:
                 by_deck.setdefault(segment.deck.name, []).append(segment)
         passage = next(s for s in segments if s.deck is None)
-
         agreements = {1: 0, 0: 0}
         total = 0
-        for state, row in sorted(table.items()):
-            north_text, south_text, centre_open = ALIGNMENTS[state]
-            for name, text in (("Northern", north_text), ("Southern", south_text)):
+        for state, r in sorted(self.table.items()):
+            north_text, south_text, centre_flag = ALIGNMENTS[state]
+            for name, text in (("Northern", north_text),
+                               ("Southern", south_text)):
                 expected = sorted(text.split(" and "), key=self.ORDER.index)
                 total += 1
                 for polarity in (1, 0):
                     derived = sorted(
-                        (s.direction for s in by_deck[name]
-                         if row.get(s.entry_index) == polarity),
+                        (seg.direction for seg in by_deck[name]
+                         if r.get(seg.entry_index) == polarity),
                         key=self.ORDER.index)
                     agreements[polarity] += derived == expected
             total += 1
             for polarity in (1, 0):
                 agreements[polarity] += (
-                    (row.get(passage.entry_index) == polarity) == centre_open)
-
+                    (r.get(passage.entry_index) == polarity) == centre_flag)
         self.assertEqual(total, 12)
-        self.assertEqual(
-            agreements[1], 12,
-            "enable==1 must mean CONNECTED: the script table and the "
-            "observed ALIGNMENTS prose agree on every field")
-        self.assertEqual(
-            agreements[0], 0,
-            "enable==1 meaning BLOCKED must disagree everywhere; if this "
-            "ever passes, the polarity is no longer decidable and the "
-            "category must be suppressed until it is settled live")
+        # It reproduces the enable bits exactly -- which is the point: this
+        # is the same table wearing different words, not a second source.
+        self.assertEqual(agreements[1], 12)
+        self.assertEqual(agreements[0], 0)
 
 
 class RealRoomTests(unittest.TestCase):
@@ -406,8 +546,8 @@ class RealRoomTests(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_REAL_DATA, "extracted M6_out data not present")
     def test_deck_naming_is_derived_and_matches_the_shipped_naming(self):
-        # `gateon_bridge.py` hardcodes {58: "southern", 59: "northern"}.
-        # Deriving it from Z must reproduce that, or one of them is wrong.
+        # The retired reader used {58: "southern", 59: "northern"}.
+        # Deriving it from Z must reproduce that independent observation.
         names = {deck.entry_index: deck.name for deck in self.decks}
         self.assertEqual(names[59], "Northern")
         self.assertEqual(names[58], "Southern")
@@ -432,7 +572,7 @@ class RealRoomTests(unittest.TestCase):
                 live = [
                     s for s in self.segments
                     if s.deck is not None and s.deck.name == name
-                    and row[s.entry_index] == 1
+                    and row[s.entry_index] == OPEN
                 ]
                 self.assertEqual(
                     len(live), 2,
@@ -445,8 +585,19 @@ class RealRoomTests(unittest.TestCase):
         for state, row in self.table.items():
             for name in ("Northern", "Southern"):
                 self.assertTrue(any(
-                    row[s.entry_index] == 1 for s in self.segments
+                    row[s.entry_index] == OPEN for s in self.segments
                     if s.deck is not None and s.deck.name == name))
+
+
+class BridgeCategoryTests(unittest.TestCase):
+    def test_bridge_is_a_separate_aligned_navigation_category(self):
+        keys = XD_US_REV0.entity_nav_category_keys
+        singular = XD_US_REV0.entity_nav_category_singular_labels
+        plural = XD_US_REV0.entity_nav_category_plural_labels
+        index = keys.index("bridge")
+        self.assertEqual(singular[index], "Bridge")
+        self.assertEqual(plural[index], "Bridges")
+        self.assertNotEqual(index, keys.index("exit"))
 
 
 if __name__ == "__main__":

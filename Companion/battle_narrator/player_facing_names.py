@@ -65,6 +65,26 @@ EXACT_ROOM_NAMES = {
     "M5_labo_1F": "Pokemon HQ Lab, first floor",
     "M5_labo_2F": "Pokemon HQ Lab, second floor",
     "M5_labo_B1": "Pokemon HQ Lab, basement",
+    # Mt. Battle, named by the project owner 2026-08-18 and corroborated
+    # from the rooms' own scripts rather than taken on trust:
+    #
+    #   D2_pc_1F is the ENTRANCE building, not a Pokemon Center. The code
+    #   says `pc` because it reuses the Center's building template -- the
+    #   owner's own words, "it shares certain elements to a pokemon center,
+    #   but it's the enterance" -- and the generic `pc` rule therefore
+    #   announced it as "Pokemon Center, 1st floor". Its script settles it:
+    #   it declares `mtbtl`, `mtbtl_chart` and `mtbtl_menu_1/2/3`, the Mt.
+    #   Battle challenge chart and its menus. No other `_pc_` room in the
+    #   game declares anything of the kind.
+    #
+    #   D2_out is the outdoor area. It was "Mt. Battle", which is also what
+    #   LOCATION_NAMES calls the whole location, so a warp leading back out
+    #   announced the same words as the place you were already in. "Mt.
+    #   Battle outside" distinguishes the two; the world-map destination
+    #   entry is unaffected, since that text comes from the game's own
+    #   worldmap string table (message 54508), not from here.
+    "D2_out": "Mt. Battle outside",
+    "D2_pc_1F": "Mt. Battle entrance",
     "S1_shop_1F": "Outskirt Stand shop",
     # Rewritten 2026-08-10 onto the CORRECTED locations. These said "ONBS"
     # and "Cipher Key Lair" for rooms that are Snagem Hideout and
@@ -122,17 +142,39 @@ def player_facing_room_name(code, services=None):
     if not location:
         return " ".join(parts)
     if len(parts) == 1 or parts[1].startswith("out"):
+        # An outdoor area IS its location -- "Pyrite Town" is the room's own
+        # name here, not a prefix, so nothing is stripped below.
         return location
+    # **The location prefix is deliberately NOT included from here down**
+    # (project owner, 2026-08-12: "remove the map name from entities...
+    # especially from buildings list").
+    #
+    # Every warp, door and elevator in a room leads somewhere in the same
+    # map, so the town name was repeated on every single entry of the exits
+    # list while telling the player nothing they did not already know from
+    # standing there -- "to Pyrite Town Pokemon Mart, to Pyrite Town police
+    # station, to Pyrite Town hotel".
+    #
+    # Applied HERE rather than in entity-nav's own labelling so the room
+    # announcer keeps agreeing with the door that led to it -- an earlier
+    # explicit request (see room_announcer.py's docstring: a door announced
+    # as X must arrive somewhere that calls itself X). Both now say
+    # "Pokemon Center, 2nd floor".
+    #
+    # `EXACT_ROOM_NAMES` above is untouched: those are hand-curated proper
+    # names, and the location-looking words in them ("Pokemon HQ Lab",
+    # "Snagem Hideout", "Kaminko's House") are what those buildings are
+    # actually called, not a map prefix.
     kind = parts[1]
     building = PART_NAMES.get(kind)
     if building:
-        return f"{location} {building}" + _floor_suffix(parts[2:])
+        return building + _floor_suffix(parts[2:])
     if kind.lower().startswith("house"):
         service = (services or {}).get(code)
         if service:
-            return f"{location} {service}" + _floor_suffix(parts[2:])
-        return f"house in {location}" + _floor_suffix(parts[2:])
-    return f"{location} {' '.join(parts[1:])}"
+            return service + _floor_suffix(parts[2:])
+        return "house" + _floor_suffix(parts[2:])
+    return " ".join(parts[1:])
 
 def build_room_names(room_codes, services=None):
     return {

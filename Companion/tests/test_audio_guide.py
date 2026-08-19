@@ -64,11 +64,14 @@ class FixedResultNavigation:
     # destination somewhere the player can reach. A double that quietly
     # omits a real parameter is how the `PartySlot.nickname` crash reached
     # production with a green suite (see PLAYTHROUGH_BARRIER_LOG #10).
-    def begin(self, floor_id, destination_position, player_position=None):
+    def begin(self, floor_id, destination_position, player_position=None,
+              destination_region=None):
         self.begun_with_player_position = player_position
+        self.begun_with_region = destination_region
 
-    def update(self, floor_id, destination_position, player_position=None):
-        pass
+    def update(self, floor_id, destination_position, player_position=None,
+               destination_region=None):
+        self.updated_with_region = destination_region
     def next_waypoint(self, player_position):
         return self.result
     def clear(self):
@@ -362,6 +365,95 @@ class AudioGuideReaderTests(unittest.TestCase):
         self.assertEqual(self.player.played, [])
         self.assertEqual(self.speech.calls, [])
 
+    # -- dialogue suppression ------------------------------------------
+    #
+    # The guide goes SILENT while a conversation is open and resumes
+    # afterwards. It is deliberately not turned off: entity-nav already
+    # keeps its selection across a conversation on purpose, and throwing
+    # the route away would make "find someone, talk to them, carry on"
+    # cost a re-press and a route rebuild every time.
+
+    def _active_reader(self):
+        source = Source([entity(x=10.0, z=0.0)])
+        nav = FakeEntityNav(
+            {"npc": source}, category_key="npc", selected_identity="e1")
+        reader = self._reader(nav)
+        self.hotkey.fire = True
+        reader.poll_once()
+        self.player.played.clear()
+        self.player.stopped = 0
+        self.speech.calls.clear()
+        return reader
+
+    def test_dialogue_silences_an_active_guide_without_turning_it_off(self):
+        reader = self._active_reader()
+        reader.poll_once(silenced=True)
+        self.assertEqual(self.player.played, [])
+        self.assertEqual(self.speech.calls, [])
+        self.assertTrue(reader.active)
+        self.assertEqual(self.player.stopped, 1)
+
+    def test_a_sound_already_playing_is_cut_off_once_not_every_poll(self):
+        reader = self._active_reader()
+        for _ in range(5):
+            reader.poll_once(silenced=True)
+        self.assertEqual(self.player.stopped, 1)
+
+    def test_the_guide_resumes_by_itself_when_the_dialogue_closes(self):
+        reader = self._active_reader()
+        reader.poll_once(silenced=True)
+        reader.poll_once()
+        self.assertTrue(reader.active)
+        self.assertEqual(len(self.player.played), 1)
+
+    def test_arrival_during_dialogue_is_deferred_not_spoken_over_it(self):
+        # Standing on the target while a conversation is up must not fire
+        # "Arrived." into the middle of it. The fact is still true when the
+        # box closes, and that is when it is said.
+        source = Source([entity(x=0.0, z=0.0)])
+        nav = FakeEntityNav(
+            {"npc": source}, category_key="npc", selected_identity="e1")
+        reader = self._reader(nav)
+        self.hotkey.fire = True
+        reader.poll_once()
+        self.speech.calls.clear()
+        reader.poll_once(silenced=True)
+        self.assertEqual(self.speech.calls, [])
+        self.assertTrue(reader.active)
+        reader.poll_once()
+        self.assertIn("Arrived.", self.speech.calls)
+        self.assertFalse(reader.active)
+
+    def test_a_press_during_dialogue_is_dropped_not_queued(self):
+        # Acting on it would have to speak to be usable, which is the thing
+        # being avoided. The chord is still POLLED so its edge state stays
+        # honest -- see poll_once.
+        reader = self._active_reader()
+        self.hotkey.fire = True
+        reader.poll_once(silenced=True)
+        self.assertTrue(reader.active)
+        self.assertEqual(self.speech.calls, [])
+        reader.poll_once()
+        self.assertTrue(reader.active)
+        self.assertEqual(self.speech.calls, [])
+
+    def test_dialogue_while_off_stays_off_and_touches_nothing(self):
+        source = Source([entity()])
+        nav = FakeEntityNav(
+            {"npc": source}, category_key="npc", selected_identity="e1")
+        reader = self._reader(nav)
+        reader.poll_once(silenced=True)
+        self.assertFalse(reader.active)
+        self.assertEqual(self.player.stopped, 0)
+        self.assertEqual(self.speech.calls, [])
+
+    def test_clear_drops_suppression_so_a_fresh_guide_is_not_born_silent(self):
+        reader = self._active_reader()
+        reader.poll_once(silenced=True)
+        self.assertTrue(reader.suppressed)
+        reader.clear("test")
+        self.assertFalse(reader.suppressed)
+
     def test_lifecycle_accepts_audio_guide_factory(self):
         factory = lambda entity_nav_reader: self._reader(
             FakeEntityNav({"npc": Source([])}))
@@ -510,7 +602,7 @@ class AudioGuideReaderTests(unittest.TestCase):
 
 
 class DirectBeaconModeTests(unittest.TestCase):
-    """`navigation=None` -- the ctrl+shift+g mode: one beacon sitting on the
+    """`navigation=None` -- the ctrl+g mode: one beacon sitting on the
     entity itself, no routing of any kind (project owner, 2026-08-04: "i
     want what's on g to be on n and i want g to be just one beacon that is
     on the entity")."""
@@ -638,6 +730,16 @@ class GuideModeExclusionTests(unittest.TestCase):
         self.modes.poll_once()
         self.assertTrue(self.beacon.active)
         self.assertFalse(self.routed.active)
+
+    def test_dialogue_silences_both_modes_through_the_pair(self):
+        self.navigation_hotkey.fire = True
+        self.modes.poll_once()
+        self.player.played.clear()
+        self.modes.poll_once(silenced=True)
+        self.assertEqual(self.player.played, [])
+        self.assertTrue(self.routed.suppressed)
+        self.assertTrue(self.routed.active)
+        self.assertFalse(self.beacon.active)
 
     def test_clearing_the_pair_clears_both(self):
         self.beacon_hotkey.fire = True

@@ -3,7 +3,8 @@
 ## Production status
 
 The canonical narrator reads the P-star-DA home menu, opened Mailbox
-messages, the Spot Monitor summary, and the selected Shadow Monitor entry.
+messages, the Spot Monitor summary, selected Shadow Monitor entries, and
+selected Strategy Memo entries.
 No additional accessibility hotkey is used.
 
 ## Source and state ownership
@@ -53,16 +54,35 @@ native logical selection as the sum of its signed row and scroll halfwords,
 then reads the selected record's species and resolves its name from game data.
 The result is re-announced only when the selected row/species changes.
 
+The 2026-08-11 live log exposed a pointer-depth defect in species lookup:
+`0x804EA634` points to the species count rather than containing the count.
+The old reader consequently requested an impossible `0x92D68017F0`-byte
+span and was isolated every poll. Production now follows the same double
+indirection as `pokemonDataBiosGetPtr` and the shared message renderer.
+
+## Strategy Memo
+
+Live windows are `0x77`, `0x78`, and `0x7F`; the detail view additionally
+uses `0x7C`. `pMemoList` at `0x804EA868` points to the native list object,
+whose `+0x3C` field points to the sorted u16 species-ID array. The list uses
+`cursorBios` slot 13 at `0x80445C14`; production sums its signed row and
+scroll halfwords and resolves the selected species through game data.
+
+This ownership comes directly from `menuPdaMemoListGetPokemonID` and
+`pdaMemoList::InitWork`, which populate and consume that same array. No
+species names are embedded in the reader.
+
 ## Validation and remaining work
 
-Targeted PDA tests: 11 passing. Full automated suite: 1,352 passing. Tests
+Targeted PDA tests: 12 passing. Full automated suite: 1,356 passing. Tests
 cover mail lifecycle/deduplication, all five corrected home selections, Spot
 Monitor source values and visibility plumbing, and Shadow Monitor cursor
 movement. Static provenance was checked against the GXXE01 decompilation.
 
-Spot Monitor and Shadow Monitor have not yet been live-tested in Dolphin;
-their status is implemented plus static/regression verified, not live proven.
-The Mailbox list and Strategy Memo remain to be implemented.
+The 2026-08-11 log live-confirmed all three monitor window sets and exposed
+the corrected pointer depths. Post-fix speech still needs a fresh Dolphin
+confirmation. The Mailbox list and Strategy Memo detail fields beyond the
+selected species remain open.
 
 ## Signed implementation
 

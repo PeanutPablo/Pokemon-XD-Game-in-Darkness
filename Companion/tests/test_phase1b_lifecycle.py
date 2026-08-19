@@ -3,6 +3,7 @@ import logging
 import unittest
 
 from battle_narrator.memory import MemoryError, MemoryReader
+from battle_narrator.messages import LocalDataError
 from battle_narrator.phase1b_connection import (
     ConnectionError,
     PersistentDolphinConnection,
@@ -412,6 +413,165 @@ class LifecycleTests(unittest.TestCase):
         controller.step()
         self.assertEqual(controller.state, LifecycleState.SHUTDOWN)
         self.assertEqual(speaker.spoken, [])
+
+
+class BeaconSilencingTests(unittest.TestCase):
+    """Every non-speech cue holds its tongue while the player is listening
+    to speech -- a conversation, or the settings menu.
+
+    The settings menu half was the project owner's request, 2026-08-18, and
+    the Sound library heading makes it acute: that screen exists to play
+    cues one at a time so they can be told apart, and the ambient beacons
+    were playing over it.
+    """
+
+    class Dialogue:
+        def __init__(self, active=False):
+            self.active = active
+
+    class Menu:
+        def __init__(self, open=False):
+            self.open = open
+            self.controller = None
+
+    class Beacons:
+        def __init__(self):
+            self.polls = 0
+            self.suppressions = 0
+
+        def poll_once(self):
+            self.polls += 1
+
+        def suppress_for_dialogue(self):
+            self.suppressions += 1
+
+        def clear(self, reason):
+            pass
+
+    class Guide:
+        def __init__(self):
+            self.calls = []
+
+        def poll_once(self, silenced=False):
+            self.calls.append(silenced)
+
+        def clear(self, reason):
+            pass
+
+    def _controller(self, dialogue=None, menu=None):
+        log = logging.getLogger("lifecycle-beacon-silencing-test")
+        log.addHandler(logging.NullHandler())
+        controller = LifecycleController(
+            connection=None, tasks_factory=lambda: None,
+            narrator_factory=lambda: None, speaker=None, logger=log,
+            settings_menu=menu)
+        controller.dialogue_reader = dialogue
+        controller.npc_sound_reader = self.Beacons()
+        controller.audio_guide_reader = self.Guide()
+        return controller
+
+    def test_nothing_is_silenced_when_neither_is_open(self):
+        controller = self._controller(
+            dialogue=self.Dialogue(False), menu=self.Menu(False))
+        self.assertFalse(controller._beacons_silenced())
+        controller.poll_npc_sounds()
+        controller.poll_audio_guide()
+        self.assertEqual(controller.npc_sound_reader.polls, 1)
+        self.assertEqual(controller.npc_sound_reader.suppressions, 0)
+        self.assertEqual(controller.audio_guide_reader.calls, [False])
+
+    def test_an_open_settings_menu_silences_the_passive_beacons(self):
+        controller = self._controller(
+            dialogue=self.Dialogue(False), menu=self.Menu(True))
+        self.assertTrue(controller._beacons_silenced())
+        controller.poll_npc_sounds()
+        self.assertEqual(controller.npc_sound_reader.polls, 0)
+        self.assertEqual(controller.npc_sound_reader.suppressions, 1)
+
+    def test_an_open_settings_menu_silences_the_guide(self):
+        controller = self._controller(
+            dialogue=self.Dialogue(False), menu=self.Menu(True))
+        controller.poll_audio_guide()
+        self.assertEqual(controller.audio_guide_reader.calls, [True])
+
+    def test_a_conversation_still_silences_both(self):
+        controller = self._controller(
+            dialogue=self.Dialogue(True), menu=self.Menu(False))
+        self.assertTrue(controller._beacons_silenced())
+        controller.poll_npc_sounds()
+        controller.poll_audio_guide()
+        self.assertEqual(controller.npc_sound_reader.suppressions, 1)
+        self.assertEqual(controller.audio_guide_reader.calls, [True])
+
+    def test_closing_the_menu_lets_them_speak_again(self):
+        menu = self.Menu(True)
+        controller = self._controller(
+            dialogue=self.Dialogue(False), menu=menu)
+        controller.poll_npc_sounds()
+        controller.poll_audio_guide()
+        menu.open = False
+        controller.poll_npc_sounds()
+        controller.poll_audio_guide()
+        self.assertEqual(controller.npc_sound_reader.polls, 1)
+        self.assertEqual(controller.audio_guide_reader.calls, [True, False])
+
+    def test_no_settings_menu_at_all_is_not_treated_as_open(self):
+        # `--no-settings-menu` leaves it None. Reading `.open` off None
+        # would take the beacons out entirely.
+        controller = self._controller(dialogue=self.Dialogue(False), menu=None)
+        self.assertFalse(controller._beacons_silenced())
+
+    def test_no_dialogue_reader_at_all_is_not_treated_as_active(self):
+        controller = self._controller(dialogue=None, menu=self.Menu(False))
+        self.assertFalse(controller._beacons_silenced())
+
+
+class OptionalReaderFailureTests(unittest.TestCase):
+    """One unreadable local data file must not kill the whole narrator.
+
+    Live-caught 2026-08-12: `pda_menu.fsys` holds an entry whose LZSS header
+    reads `7f 00 53 53`, `PdaCatalog` raised `LocalDataError`, nothing caught
+    it before `main`, and the narrator exited 1 about a second after
+    announcing itself -- three times in 61 seconds. Battle narration, menus,
+    dialogue and navigation were all lost to the PDA."""
+
+    def _controller(self, **factories):
+        log = logging.getLogger("lifecycle-optional-reader-test")
+        log.addHandler(logging.NullHandler())
+        return LifecycleController(
+            connection=None, tasks_factory=lambda: None,
+            narrator_factory=lambda: None, speaker=None, logger=log,
+            **factories)
+
+    def test_a_bad_local_catalog_disables_only_its_own_reader(self):
+        def broken():
+            raise LocalDataError("Invalid LZSS magic: b'\\x7f\\x00SS'")
+
+        controller = self._controller(
+            pda_factory=broken,
+            menu_factory=lambda: "menu",
+            dialogue_factory=lambda: "dialogue")
+        self.assertIsNone(controller._build(controller.pda_factory, "pda"))
+        self.assertEqual(
+            controller._build(controller.menu_factory, "menu"), "menu")
+        self.assertEqual(
+            controller._build(controller.dialogue_factory, "dialogue"),
+            "dialogue")
+
+    def test_a_missing_factory_is_still_just_none(self):
+        controller = self._controller()
+        self.assertIsNone(controller._build(None, "absent"))
+
+    def test_other_failures_still_propagate(self):
+        """Scoped to LocalDataError deliberately. A reader failing for a
+        reason that is not about its own data is a real defect and must stay
+        loud rather than silently disabling a feature."""
+        def exploding():
+            raise ValueError("this is a bug, not a bad file")
+
+        controller = self._controller(menu_factory=exploding)
+        with self.assertRaises(ValueError):
+            controller._build(controller.menu_factory, "menu")
 
 
 if __name__ == "__main__":

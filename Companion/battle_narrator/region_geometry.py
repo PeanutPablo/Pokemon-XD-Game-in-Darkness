@@ -79,6 +79,61 @@ class Region:
             return None
         return math.hypot(point[0] - x, point[1] - z)
 
+    def components(self):
+        """This region split into its spatially separate VOLUMES.
+
+        One interaction index can own several disjoint trigger volumes --
+        the two ends of a corridor, both sides of a doorway, a pair of cave
+        mouths. Measured over all 843 regions, that is why 210 have a
+        centroid outside their own geometry: the centroid lands in the empty
+        space between two volumes. `D1_out` index 2 is 161.9 units from any
+        of its own triangles, `D3_out` index 1 is 168.9.
+
+        Treating such a region as one blob is what lets navigation announce
+        and route toward different volumes, or pick a nearer volume the
+        player cannot reach while a farther one is walkable. Splitting it
+        makes "which part of this thing am I going to" answerable.
+
+        Triangles join a component when they share a vertex in XZ. That is
+        the conservative direction: touching volumes merge (harmless -- they
+        are mutually reachable by definition), while genuinely separate ones
+        stay separate, which is the case that matters.
+
+        Returns a tuple of `Region`s sharing this one's index and anchor.
+        A single-volume region returns itself, so callers need no special
+        case."""
+        if len(self.triangles) <= 1:
+            return (self,)
+        parent = list(range(len(self.triangles)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(i, j):
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[rj] = ri
+
+        keyed = []
+        for triangle in self.triangles:
+            keyed.append({(round(v[0], 3), round(v[2], 3)) for v in triangle})
+        for i in range(len(keyed)):
+            for j in range(i + 1, len(keyed)):
+                if keyed[i] & keyed[j]:
+                    union(i, j)
+        groups = {}
+        for index, triangle in enumerate(self.triangles):
+            groups.setdefault(find(index), []).append(triangle)
+        if len(groups) == 1:
+            return (self,)
+        return tuple(
+            Region(index=self.index, triangles=tuple(members),
+                   anchor=self.anchor)
+            for members in groups.values())
+
 
 def _nearest_on_segment(ax, az, bx, bz, x, z):
     dx, dz = bx - ax, bz - az
@@ -111,6 +166,45 @@ def _contains_xz(triangle, x, z):
     negative = (d1 < 0) or (d2 < 0) or (d3 < 0)
     positive = (d1 > 0) or (d2 > 0) or (d3 > 0)
     return not (negative and positive)
+
+
+def triangle_key(vertices):
+    """Order-independent identity for one triangle, rounded to the CCD's own
+    two-decimal precision. Used to recognise the SAME triangle appearing in
+    two different CCD slots."""
+    return tuple(sorted(
+        tuple(round(coordinate, 2) for coordinate in vertex)
+        for vertex in vertices))
+
+
+def interaction_volume_keys(ccd):
+    """Every interaction-region triangle in this room, as `triangle_key`s.
+
+    **Why routing needs this (live 2026-08-14).** A CCD object can carry
+    geometry in the hit-model slot (+0x28) *and* own an interaction region
+    (slots +0x2C/+0x30), and in that case the two are frequently the SAME
+    triangles. `M3_out` entry 33 is exactly that: its two hit-model triangles
+    are byte-identical to region 9's, and it is the only entry in that room
+    which both owns a region and has hit geometry.
+
+    Treating those triangles as obstacles builds a wall across a doorway the
+    player walks straight through -- confirmed live by the project owner, who
+    can enter the Relic Stone cave while the engine reports that object
+    ENABLED and the companion was modelling its trigger volume as a barrier.
+
+    An interaction region is by definition a volume the player must be able
+    to stand inside for the trigger to fire, so it cannot also be something
+    they are blocked by. Measured across all 177 rooms: 346 of 1118
+    hit-model objects have obstacle geometry that is entirely interaction
+    geometry, spanning 117 rooms -- so this is a systemic mismodelling, not
+    one room's quirk.
+
+    Returns a frozenset; `pathfinding.build_room_geometry` drops any wall
+    triangle whose key is in it."""
+    return frozenset(
+        triangle_key(triangle)
+        for region in parse_regions(ccd).values()
+        for triangle in region.triangles)
 
 
 def parse_regions(ccd):

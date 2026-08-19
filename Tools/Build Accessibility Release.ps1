@@ -53,6 +53,11 @@ $approvedFiles = @(
     'Companion/setup_companion.py',
     'Companion/launch_accessible.py',
     'Companion/check_game_compatibility.py',
+    # The static counterpart: answers the same compatibility question from a
+    # disc FILE, before the game is ever booted. Worth shipping precisely
+    # because a recipient can run it when Setup rejects their image, without
+    # having to get as far as a running Dolphin first.
+    'Companion/check_image_compatibility.py',
     'Setup.cmd',
     'Launch Accessible XD.cmd',
     'Companion/requirements.txt',

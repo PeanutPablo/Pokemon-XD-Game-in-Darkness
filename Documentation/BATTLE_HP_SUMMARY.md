@@ -34,16 +34,40 @@ One press begins a two-sample transaction:
 
 No unused slot is spoken. Null slots are omitted. Fainted Pokémon include zero HP, zero percent, and `fainted`.
 
-## Presentation order
+## Ownership and presentation order
 
-The internal ordinary-battle slots are presented as:
+**Corrected 2026-08-18.** Both the side each battler is attributed to and
+the order they are spoken in are now *derived*, not read from a positional
+table.
 
-1. slot 0 — Player left
-2. slot 2 — Player right
-3. slot 1 — Opponent left
-4. slot 3 — Opponent right
+`hotkeys.BattleHPSummary._ordered` used to index
+`profile.summary_slot_ownership` — a fixed `("Player", "Player",
+"Opponent", "Opponent")` tuple — by active-array index. That tuple's own
+comment in `profile.py` records why it cannot be trusted for this: the
+2026-07-25 handoff recorded the *opposite* interleaving, and a positional
+tuple cannot be correct for both. It also cannot survive the active array
+compacting after a faint, which is exactly when the summary matters most —
+the wrong side would be stated confidently.
 
-The spoken ownership labels are concise: `Player` and `Opponent`. Single battles naturally produce slot 0 followed by slot 1. Double-battle and empty-slot ordering is covered synthetically; the double-battle layout has not yet received a dedicated live regression.
+Ownership now comes from `health.owner_for_battler`, which asks which
+trainer's party array the battler's own `FightPokemon` record physically
+sits in. That is pure arithmetic over the verified chain documented in
+`BATTLE_IDENTITY_MODEL.md`, needs no extra read, and is exact. The
+positional tuple survives only as `owner_for_battler`'s fallback for a
+pointer that lands outside every party range, which does not happen for a
+real battler.
+
+Speaking order is derived from the same answer: **every player battler
+first, in active-slot order, then every opponent battler**. For an
+uncompacted field that is the same order the old tuple produced; unlike the
+tuple it stays grouped by side after a replacement lands in a different
+slot.
+
+The spoken ownership labels are concise: `Player` and `Opponent`. The
+double-battle layout has not yet received a dedicated live regression;
+`tests/test_battle_hp_summary.py` covers the compacted-field case
+synthetically, with battler pointers placed on real party-array cells so
+the derivation itself is what is being exercised.
 
 ## Fields and wording
 

@@ -50,6 +50,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _dialogue_extraction_tool as extraction
+from battle_narrator import game_build
 from extract_warp_collision_data import collision_data
 
 DISC_MAGIC = 0xC2339F3D
@@ -65,6 +66,14 @@ REQUIRED_ARCHIVES = {
 }
 
 OPTIONAL_ARCHIVES = {
+    # The Name Rater's dialogue is owned by its own room archive, not by
+    # any of the global tables -- message 50803 lives in M3_houseD_1F and
+    # nowhere else. It was hand-extracted in an earlier session, so it
+    # existed only in the one tree that session produced; generated trees
+    # lacked it and the narrator refused to start. Extracted here so every
+    # build gets its own copy, which it must: the text is dialogue, and a
+    # hack is free to rewrite it.
+    "M3_houseD_1F.fsys": "rooms/files",
     "battle_disk.fsys": "raw/files",
     "worldmap.fsys": "worldmap/files",
     "pda_menu.fsys": "pda/files",
@@ -372,9 +381,25 @@ def write_collision(disc, out, log):
     return written
 
 
-def bootstrap(disc_path, out, dolphin_tool=None, log=print):
+def dol_section_table(dol):
+    """[(index, file_offset, address, size)] for each populated section."""
+    offsets = struct.unpack_from(">18I", dol, 0x00)
+    addresses = struct.unpack_from(">18I", dol, 0x48)
+    sizes = struct.unpack_from(">18I", dol, 0x90)
+    return [
+        (index, offsets[index], addresses[index], sizes[index])
+        for index in range(18) if sizes[index]
+    ]
+
+
+def bootstrap(disc_path, out, dolphin_tool=None, log=print, per_build=True):
+    """Generate a data tree from `disc_path`.
+
+    With `per_build`, `out` is treated as a parent and the data lands in a
+    subdirectory named for the disc, so generating from a second disc adds
+    a tree instead of overwriting the first. That is what lets the
+    companion pick the right one at runtime -- see `game_build.py`."""
     out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
     workdir = Path(tempfile.mkdtemp(prefix="xg-bootstrap-"))
     temporary_iso = None
     try:
@@ -384,6 +409,23 @@ def bootstrap(disc_path, out, dolphin_tool=None, log=print):
             log(f"Disc: {disc.internal_name.strip()}  "
                 f"[{disc.game_id} rev {disc.revision}]  "
                 f"{len(disc.files)} files")
+            try:
+                fingerprint = game_build.fingerprint_from_dol(
+                    disc.read_dol(), dol_section_table(disc.read_dol()))
+            except ValueError as exc:
+                raise DiscError(
+                    f"Could not identify this build: {exc}. The companion "
+                    "would not be able to tell it apart from another disc."
+                ) from exc
+            if per_build:
+                out = out / f"{disc.game_id}-{fingerprint}"
+            out.mkdir(parents=True, exist_ok=True)
+            game_build.write_stamp(
+                out, fingerprint, source=disc_path, game_id=disc.game_id,
+                revision=disc.revision,
+                internal_name=disc.internal_name.strip())
+            log(f"Build: {disc.internal_name.strip()} fingerprint "
+                f"{fingerprint}")
             log("Required data:")
             write_archives(disc, out, REQUIRED_ARCHIVES, log, required=True)
             write_dol_strings(disc, out, log)
@@ -422,7 +464,13 @@ def parser():
         "--output", type=Path,
         default=Path(__file__).resolve().parent / "_dialogue_extraction",
         help="Where to write the generated data (default: the location "
-             "the companion reads)")
+             "the companion reads). One subdirectory is created per disc, "
+             "so running this for a second game adds to it rather than "
+             "replacing what is already there.")
+    ap.add_argument(
+        "--flat", action="store_true",
+        help="Write straight into --output instead of a per-disc "
+             "subdirectory. Only one disc's data can live there at a time.")
     ap.add_argument(
         "--dolphin-tool", type=Path, default=None,
         help="Path to DolphinTool.exe, only needed for compressed disc "
@@ -436,7 +484,8 @@ def main(argv=None):
         print(f"No disc image at {args.disc}", file=sys.stderr)
         return 2
     try:
-        return bootstrap(args.disc, args.output, args.dolphin_tool)
+        return bootstrap(args.disc, args.output, args.dolphin_tool,
+                         per_build=not args.flat)
     except DiscError as exc:
         print(f"\nCould not generate game data:\n{exc}", file=sys.stderr)
         return 1

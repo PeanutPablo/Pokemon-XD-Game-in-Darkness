@@ -16,6 +16,21 @@ class PCMenuReader:
     MAIN_MENU_ID = 122
     ACTION_MENU_ID = 123
     MAIN_LABELS = ("Pokemon Storage", "Item Storage", "Exit")
+    """The PC home menu, three entries.
+
+    **Corrected 2026-08-18**, project owner: *"the pc says 'save' instead
+    of 'exit'"*. `_poll_fixed` carried its own inline four-entry tuple for
+    this same menu -- `("Pokemon Storage", "Item Storage", "Save", "Exit")`
+    -- with a "Save" entry the real menu does not have. Every index from 2
+    on was therefore shifted: landing on Exit announced "Save", and index 3
+    was unreachable.
+
+    This is the second time this exact shape of bug has hit this menu; see
+    ACTION_LABELS below, where `_poll_fixed` was announcing the Item-PC's
+    labels for the Pokemon-PC window. Both had the same cause -- a second
+    copy of the labels living at the call site, free to disagree with the
+    one named here -- so `_poll_fixed` now reads these constants and there
+    is only one copy left to be right or wrong."""
     # Live 2026-08-10: index 0 opened the grid and deposited TODD; the old
     # unused tuple had Deposit/Withdraw reversed while _poll_fixed used
     # Item-PC labels for this Pokemon-PC window.
@@ -108,7 +123,7 @@ class PCMenuReader:
     def _poll_fixed(self):
         definitions = (
             (self.ACTION_MENU_ID, self.ACTION_LABELS),
-            (122, ("Pokemon Storage", "Item Storage", "Save", "Exit")),
+            (self.MAIN_MENU_ID, self.MAIN_LABELS),
         )
         for menu_id, labels in definitions:
             window = self._find_window(menu_id)

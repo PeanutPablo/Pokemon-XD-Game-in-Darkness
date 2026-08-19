@@ -169,3 +169,11 @@ The second alphabet row is not a contiguous ten-column table. Live entered
 text proves its raw coordinates are K–P at 0–5, Q at 7, R at 8, S at 10,
 and T at 11; columns 6 and 9 are gaps. Production follows that sparse map and
 does not announce a fabricated key while the cursor coordinate crosses a gap.
+
+### Sparse-row identity collision correction (2026-08-11)
+
+The Name Rater log confirmed the sparse coordinates but exposed a second
+defect: deduplication used `row * 10 + column`. Because row 1 has valid
+columns 10 and 11, S collided with U and T collided with V. Production now
+encodes the complete `(row, column)` pair without assuming a ten-column
+stride. A regression walks S, U, T, V and requires all four announcements.

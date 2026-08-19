@@ -53,6 +53,13 @@ SHADOW_LIST_SPECIES_OFFSET = 4
 SHADOW_CURSOR_ADDRESS = 0x80445C10  # cursorBios slot 12
 SHADOW_TITLE_MESSAGE_ID = 15184
 
+# pdaMemoList owns the sorted species-ID array used by Strategy Memo.
+STRATEGY_LIST_MENU_IDS = frozenset((0x77, 0x78, 0x7F))
+STRATEGY_LIST_OBJECT_ADDRESS = 0x804EA868
+STRATEGY_LIST_RECORDS_OFFSET = 0x3C
+STRATEGY_CURSOR_ADDRESS = 0x80445C14  # cursorBios slot 13
+STRATEGY_TITLE_MESSAGE_ID = 15182
+
 MAIL_PARENT_MENU_ID = 0x6F
 MAIL_CONTENT_MENU_ID = 0x77
 MAIL_ID_ADDRESS = 0x804EA8E4
@@ -71,17 +78,24 @@ class PdaCatalog:
     def __init__(self, pda_fsys_path):
         path = Path(pda_fsys_path)
         try:
-            files = extraction.parse_fsys(path.read_bytes())
+            archive = path.read_bytes()
             tables = []
-            for item in files:
+            bad_entries = []
+            for entry in extraction.parse_fsys_index(archive):
                 try:
-                    table = extraction.decode_string_table(item["data"])
-                except Exception:
+                    data = extraction.read_fsys_entry(archive, entry)
+                    table = extraction.decode_string_table(data)
+                except Exception as exc:
+                    bad_entries.append((entry.get("name", "?"), str(exc)))
                     continue
                 if FIRST_MAIL_MESSAGE_ID in table:
                     tables.append(table)
             if len(tables) != 1:
-                raise ValueError(f"expected one PDA text table, found {len(tables)}")
+                detail = (
+                    f"; skipped {len(bad_entries)} unreadable/non-text "
+                    "archive entries" if bad_entries else "")
+                raise ValueError(
+                    f"expected one PDA text table, found {len(tables)}{detail}")
             self.table = tables[0]
             required = range(FIRST_MAIL_MESSAGE_ID, FIRST_MAIL_MESSAGE_ID + MAIL_COUNT * 3)
             missing = [message_id for message_id in required if message_id not in self.table]
@@ -138,6 +152,8 @@ class PdaReader:
             return
         if self._read_shadow_monitor(menu_ids):
             return
+        if self._read_strategy_memo(menu_ids):
+            return
         detail_open = {MAIL_PARENT_MENU_ID, MAIL_CONTENT_MENU_ID}.issubset(menu_ids)
         open_flag = self.memory.u8(MAIL_OPEN_FLAG_ADDRESS, "PDA mail-open flag")
         if not detail_open or not open_flag:
@@ -190,7 +206,9 @@ class PdaReader:
         self.identity = identity
 
     def _species_name(self, species_id):
-        count = self.memory.u32(POKEMON_DATA_NUMBER, "species count")
+        count_pointer = self.memory.pointer(
+            POKEMON_DATA_NUMBER, 4, "species count")
+        count = self.memory.u32(count_pointer, "species count")
         if not 0 < species_id < count:
             raise MemoryError(f"invalid species ID {species_id}")
         base = self.memory.pointer(
@@ -210,7 +228,9 @@ class PdaReader:
             return False
         if self.flag_reader is None:
             raise MemoryError("general flag reader unavailable")
-        count = self.memory.u32(SPOT_DATA_COUNT_ADDRESS, "Spot Monitor record count")
+        count_pointer = self.memory.pointer(
+            SPOT_DATA_COUNT_ADDRESS, 4, "Spot Monitor record count")
+        count = self.memory.u32(count_pointer, "Spot Monitor record count")
         if count < len(SPOT_LOCATION_MESSAGE_IDS):
             raise MemoryError(f"invalid Spot Monitor record count {count}")
         records = self.memory.pointer(
@@ -250,6 +270,35 @@ class PdaReader:
             self.speech.emit(SpeechEventClass.MENU_FOCUS, text,
                              deduplicate=False, interrupt=True)
             self.logger.info("PDA SPOT values=%r", values)
+            self.identity = identity
+        return True
+
+    def _read_strategy_memo(self, menu_ids):
+        if not STRATEGY_LIST_MENU_IDS.issubset(menu_ids):
+            return False
+        obj = self.memory.pointer(
+            STRATEGY_LIST_OBJECT_ADDRESS, 0x264, "Strategy Memo list object")
+        records = self.memory.pointer(
+            obj + STRATEGY_LIST_RECORDS_OFFSET, 2, "Strategy Memo species list", 2)
+        raw = self.memory.bytes(
+            STRATEGY_CURSOR_ADDRESS, 4, "Strategy Memo cursor", 2)
+        row = int.from_bytes(raw[:2], "big", signed=True)
+        scroll = int.from_bytes(raw[2:], "big", signed=True)
+        selected = row + scroll
+        # The National Dex has fewer than 512 entries in this build. This
+        # bounds the native allocation without inventing a list count.
+        if not 0 <= selected < 512:
+            raise MemoryError(f"invalid Strategy Memo selection {selected}")
+        species = self.memory.u16(
+            records + selected * 2, "Strategy Memo selected species")
+        name = self._species_name(species)
+        identity = ("strategy", selected, species)
+        if identity != self.identity:
+            title = self.catalog.text(STRATEGY_TITLE_MESSAGE_ID)
+            text = f"{title}. {name}"
+            self.speech.emit(SpeechEventClass.MENU_FOCUS, text,
+                             deduplicate=False, interrupt=True)
+            self.logger.info("PDA STRATEGY identity=%r", identity)
             self.identity = identity
         return True
 

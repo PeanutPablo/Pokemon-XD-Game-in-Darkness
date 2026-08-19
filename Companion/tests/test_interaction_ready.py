@@ -50,6 +50,17 @@ class FakeSource:
         return self.pose
 
 
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
 def logger():
     log = logging.getLogger(f"ready-test-{id(object())}")
     log.addHandler(logging.NullHandler())
@@ -174,13 +185,33 @@ class InteractionReadyTests(unittest.TestCase):
         read.poll_once(dialogue_active=True)
         self.assertEqual(speech.texts, [])
 
-    def test_map_change_clears_and_allows_re_announcement(self):
+    def test_map_change_suppresses_stale_actors_then_reannounces(self):
         memory = FakeMemory(floor_id=1)
-        read, speech = reader([entity(0, 0, -2, label="Berk")], memory=memory)
+        clock = Clock()
+        pose = PlayerPose(Position(0, 0, 0), 0.0, facing=0.0)
+        speech = Speech()
+        source = FakeSource([entity(0, 0, -2, label="Jovi")], pose)
+        read = InteractionReadyReader(
+            memory, XD_US_REV0, {"npc": source}, speech, logger(),
+            clock=clock,
+        )
         read.poll_once()
         memory.floor_id = 2
         read.poll_once()
-        self.assertEqual(speech.texts, ["Press A to interact with Berk."] * 2)
+        clock.advance(XD_US_REV0.interaction_ready_map_change_grace - 0.01)
+        read.poll_once()
+        self.assertEqual(speech.texts, ["Press A to interact with Jovi."])
+
+        # Once the grace expires, only the new room's refreshed actors may
+        # produce a prompt.
+        source._entities = [entity(1, 0, -2, label="Aidan")]
+        clock.advance(0.02)
+        read.poll_once()
+        self.assertEqual(
+            speech.texts,
+            ["Press A to interact with Jovi.",
+             "Press A to interact with Aidan."],
+        )
 
     def test_unreadable_facing_falls_back_to_distance_only(self):
         pose = PlayerPose(Position(0, 0, 0), 0.0, facing=None)

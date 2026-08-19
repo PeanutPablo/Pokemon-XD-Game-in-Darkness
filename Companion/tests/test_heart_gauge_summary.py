@@ -19,12 +19,12 @@ class Source:
     def __init__(self, slots):
         self._slots = slots
 
-    def slots(self):
+    def shadow_gauge_slots(self):
         return list(self._slots)
 
 
 class FailingSource:
-    def slots(self):
+    def shadow_gauge_slots(self):
         raise MemoryError("boom")
 
 
@@ -64,7 +64,7 @@ class HeartGaugeSummaryTests(unittest.TestCase):
         summary = self._summary([slot(0, "EEVEE", None)])
         self.press(summary)
         self.assertEqual(
-            self.speech.calls[-1][1], "No Shadow Pokemon in your party.")
+            self.speech.calls[-1][1], "No Shadow Pokemon have a Shadow Gauge.")
 
     def test_partial_heart_gauge_is_spoken(self):
         summary = self._summary([slot(0, "TEDDIURSA", 75)])
@@ -97,6 +97,12 @@ class HeartGaugeSummaryTests(unittest.TestCase):
         self.assertEqual(
             self.speech.calls[-1][1],
             "Teddiursa: 50 percent open. Snubbull: fully open, ready to purify.")
+
+    def test_chamber_shadow_is_included_by_the_combined_source(self):
+        summary = self._summary([slot(0, "HOUNDOOM", 40)])
+        self.press(summary)
+        self.assertEqual(
+            self.speech.calls[-1][1], "Houndoom: 40 percent open.")
 
     def test_no_press_is_silent(self):
         summary = self._summary([slot(0, "TEDDIURSA", 50)])

@@ -18,6 +18,8 @@ entering them, not by pressing A, so a button prompt would be wrong.
 
 Read-only.
 """
+import time
+
 from .entity_nav import facing_error, relative_geometry
 from .speech import SpeechEventClass
 
@@ -39,7 +41,7 @@ class InteractionReadyReader:
     """
 
     def __init__(self, memory, profile, sources, speech, logger,
-                 hysteresis=None, facing_hysteresis=None):
+                 hysteresis=None, facing_hysteresis=None, clock=None):
         self.memory = memory
         self.profile = profile
         self.sources = sources
@@ -54,6 +56,8 @@ class InteractionReadyReader:
         self.context_valid = None
         self.floor_id = None
         self.announced_identity = None
+        self.clock = clock or time.monotonic
+        self.suppress_until = 0.0
 
     def clear(self, reason):
         if self.announced_identity is not None or self.context_valid is not None:
@@ -119,16 +123,21 @@ class InteractionReadyReader:
 
     def poll_once(self, dialogue_active=False):
         p = self.profile
+        now = self.clock()
         floor_id = self.memory.u16(
             p.current_floor_id, "interaction ready floor id")
         valid = not self._window_open() and not dialogue_active
         if self.floor_id is not None and floor_id != self.floor_id:
             self.clear("map changed")
+            self.suppress_until = (
+                now + p.interaction_ready_map_change_grace)
         elif self.context_valid and not valid:
             self.clear("left free-roaming overworld control")
         self.context_valid = valid
         self.floor_id = floor_id
         if not valid:
+            return
+        if now < self.suppress_until:
             return
 
         pose = self._current_pose()

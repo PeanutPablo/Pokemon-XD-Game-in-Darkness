@@ -34,6 +34,8 @@ type, and the "obtained from" flavor text are also not yet implemented --
 each needs its own lookup table or message-system investigation not done
 yet.
 """
+import ctypes
+
 from .health import round_percent, speech_name
 from .memory import MemoryError
 from .speech import SpeechEventClass
@@ -42,7 +44,8 @@ PAGE_NAMES = ("Info", "Status", "Moves", "Ribbons")
 
 
 class PartySummaryScreenReader:
-    def __init__(self, memory, profile, party_source, speech, logger):
+    def __init__(self, memory, profile, party_source, speech, logger,
+                 key_state=None):
         self.memory = memory
         self.profile = profile
         self.party_source = party_source
@@ -50,12 +53,40 @@ class PartySummaryScreenReader:
         self.logger = logger
         self.active = False
         self.last_page = None
+        self.key_state = key_state or self._windows_key_state
+        self.keyboard_cursor = 0
+        self.key_was_down = {"up": False, "down": False}
+
+    @staticmethod
+    def _windows_key_state(key):
+        virtual_key = {"up": 0x26, "down": 0x28}[key]
+        try:
+            return bool(ctypes.windll.user32.GetAsyncKeyState(virtual_key) & 0x8000)
+        except (AttributeError, OSError):
+            return False
+
+    def _keyboard_learning_cursor(self, count, entering):
+        if entering:
+            self.keyboard_cursor = 0
+            # Prime held-state so the key used to enter this screen cannot
+            # also move its selection before it is released.
+            for key in self.key_was_down:
+                self.key_was_down[key] = self.key_state(key)
+            return self.keyboard_cursor
+        for key, delta in (("up", -1), ("down", 1)):
+            pressed = self.key_state(key)
+            if pressed and not self.key_was_down[key] and count:
+                self.keyboard_cursor = (self.keyboard_cursor + delta) % count
+            self.key_was_down[key] = pressed
+        return self.keyboard_cursor
 
     def clear(self, reason):
         if self.active and self.logger:
             self.logger.debug("PARTY SUMMARY SCREEN CLEAR reason=%s", reason)
         self.active = False
         self.last_page = None
+        self.keyboard_cursor = 0
+        self.key_was_down = {"up": False, "down": False}
 
     def _find_windows(self):
         p = self.profile
@@ -166,13 +197,6 @@ class PartySummaryScreenReader:
         # Window 94's +0x9F is the PAGE (and overlaps the generic cursor's
         # low byte), so reading it as a row cursor made page 2 permanently
         # select move 3. Window 98 owns the actual move-row cursor.
-        learning_cursor = (
-            self._logical_cursor(learning_window)
-            if learning_window is not None else None
-        )
-        identity = (page, learning_cursor)
-        if self.active and identity == self.last_page:
-            return
         try:
             pointer = self.memory.u32(
                 self.profile.party_summary_pokemon_pointer,
@@ -187,19 +211,37 @@ class PartySummaryScreenReader:
             self.last_page[0] if self.active and self.last_page is not None
             else None
         )
-        if page == 2 and previous_page != 2:
-            # Entering Moves must announce the complete move set. Window 98
-            # is already present with a cursor, so treating its mere presence
-            # as a focused-only overlay skipped three of four moves live.
-            text = self._moves_text(slot)
-        elif learning_cursor is not None:
+        learning_cursor = None
+        if learning_window is not None:
+            entering = previous_page != 2
+            learning_cursor = self._keyboard_learning_cursor(
+                len(slot.moves), entering)
+        identity = (page, learning_cursor)
+        if self.active and identity == self.last_page:
+            return
+        if learning_cursor is not None:
             if 0 <= learning_cursor < len(slot.moves):
-                # This is the same four-move list as the ordinary Moves page.
-                # Reuse its presentation instead of inventing a separate
-                # "Forget ...?" sentence that does not belong to the game.
-                text = self._move_text(slot.moves[learning_cursor]) + "."
+                move = self._move_text(slot.moves[learning_cursor])
+                if previous_page != 2:
+                    # Window 98 is the actionable forget-move overlay. Reading
+                    # only the four-move overview here hid which row would be
+                    # confirmed. Announce the task and initial focus at once.
+                    text = (
+                        "Choose a move to forget. "
+                        f"Selected move {learning_cursor + 1} of "
+                        f"{len(slot.moves)}. {move}."
+                    )
+                else:
+                    text = (
+                        f"Move {learning_cursor + 1} of {len(slot.moves)}. "
+                        f"{move}."
+                    )
             else:
                 text = None
+        elif page == 2 and previous_page != 2:
+            # An ordinary summary Moves page has no actionable row cursor, so
+            # its useful entry announcement remains the complete move set.
+            text = self._moves_text(slot)
         else:
             text = self._text_for_page(page, slot)
         if text is not None:

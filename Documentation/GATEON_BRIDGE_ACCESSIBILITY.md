@@ -17,10 +17,12 @@ their own entity-navigation category at the project owner's request.
 > **parsed** from the extracted room script, and the decks, the compass
 > directions and the positions are **derived** from `M6_out.ccd`.
 >
-> **§2.2 below is corrected by this work.** Entries 23-31 are not the
-> bridge's blocking geometry. **`enable == 1` means that direction is
-> CONNECTED.** See §2.4 for how that was settled — it is the one fact here
-> that could have walked a blind player off a pier if taken backwards.
+> **POLARITY CORRECTED 2026-08-18 — see §2.4.** From 2026-08-09 to
+> 2026-08-18 this document and the reader both claimed `enable == 1` means
+> CONNECTED. It means **BLOCKED**, so for nine days the category listed
+> exactly the directions the player could not cross. §2.2's original
+> description of entries 23-31 as the bridge's *blocking* geometry was
+> right.
 
 > The audit brief refers to "Codex's Gateon Port/bridge documentation."
 > **No such document exists in this repository.** It was looked for in
@@ -113,35 +115,79 @@ deck connection without a threshold written by hand.
 So no Gateon coordinate, room list or direction is written into the
 companion.
 
-### 2.4 The polarity — settled, not assumed
+### 2.4 The polarity — got wrong, then settled
 
-**`enable == 1` on entries 23-31 means that direction is CONNECTED.**
+**`enable == 1` on entries 23-31 means that direction is BLOCKED.**
 
-Reading it backwards would send a blind player at a wall in every
-alignment, so it was decided against two sources produced independently of
-one another:
+This is the one fact here that walks a blind player into a wall if taken
+backwards, and it *was* taken backwards, from 2026-08-09 until the project
+owner reported it on 2026-08-18: the `bridge` category listed precisely
+the closed directions in every alignment, and autowalk was pointed at one
+(`21:29:12`, "Autowalk on, Southern bridge, south connection", while
+segment 30 was enabled).
 
-1. `pier_def`'s own table (§2.1) — the game's script;
-2. the `ALIGNMENTS` prose in `gateon_bridge.py` — written by whoever built
-   that reader, from the actual running game.
+**Why the original argument failed.** It rested on `pier_def`'s table
+agreeing 12/12 with the `ALIGNMENTS` prose in `gateon_bridge.py`, treated
+as an independent observation of the running game. It is not independent:
+the prose is a field-for-field restatement of the enable bits — state 0's
+"north and west" is exactly `{24, 27}`, state 1's "south and west" exactly
+`{25, 27}`, "centre open" exactly `26 == 1`. A table restated in words
+agrees with itself whichever way it was read, so 12/12 was guaranteed and
+carried no information. Two descriptions of one source are one source.
 
-Deriving each alignment's connections from geometry and comparing against
-that prose, over 4 states × (northern deck, southern deck, centre
-passage):
+**What actually settles it**, all from the room's own collision data:
 
-| Reading | Agreement |
-|---|---:|
-| `enable == 1` means **connected** | **12 / 12** |
-| `enable == 1` means **blocked** | **0 / 12** |
+| Evidence | Consequence |
+|---|---|
+| Entries 23-31 contribute **0 triangles to the walk model**; only the decks (58, 59) and the ground mesh (45) are walkable | A thing you cannot stand on is not a connection |
+| **Seven of the nine are collapsed planes** (entry 27 spans x −271.6..−271.6; entry 30 spans z −121.6..−121.6; entry 26 is 0.4 deep). The other two are closed volumes | A plane with no footprint is a gate across an opening, not a surface |
+| The call is `GScolsys2SetObjEnable(1, obj)` — it switches a collision **blocker on** | The engine's own verb agrees |
+| `pier_def` **never toggles 58 or 59** | The decks exist in every alignment; only the blockers move |
 
-The geometry corroborates it independently: the two long 68.4-unit
-structures (east, north) are the directions with a real gap to cross, and
-the short ~5-unit plates (west, south) bridge a step. Those are bridge
-parts, not barriers.
+The first and last of those were already written down in
+[ENTITY_NAVIGATION_ARCHITECTURE.md](ENTITY_NAVIGATION_ARCHITECTURE.md)
+§3.7 *when the wrong conclusion was drawn from them*.
 
-`test_bridge_connections.PolarityTests` pins both halves — 12 and 0 — so
-if the two sources ever stop agreeing, the category fails loudly rather
-than quietly inverting.
+**The puzzle only works this way round.** Crossing between the two piers
+passes three gates in a line at x = −240: the northern deck's south gate
+(25, z 78.4), the centre passage (26, z 10), and the southern deck's north
+gate (29, z −58.4). Under `1 == blocked`, alignment 0 opens all three and
+the other three alignments do not. Under `1 == connected`, **no alignment
+ever opened all three**, which would have made the two piers permanently
+uncrossable — a fact visible in the table the whole time.
+
+`test_bridge_connections.PolarityTests` now pins the collision-data facts
+themselves. The 12/12 comparison is kept as
+`test_the_retired_prose_cannot_decide_the_polarity`, labelled as the trap
+it was, so it is not reinstated as evidence a third time.
+
+### 2.5 Open is not enough: connections that lead nowhere
+
+Added 2026-08-18 with the polarity fix, from the project owner's request
+that the category list "only the places where the bridge is currently
+connected".
+
+A pier's **interior-facing** gate — the one pointing at the other pier,
+derived from the two decks' own positions rather than named — opens onto
+the centre passage and nothing else. It is published only when the passage
+is open too. The passage is published only when at least one interior gate
+is open, since otherwise it cannot be reached from either deck.
+
+Without that rule, three of the four alignments announce somewhere to walk
+that goes nowhere: alignment 1 leaves the passage open with neither gate
+onto it, and alignments 2 and 3 each leave exactly one interior gate open
+against a blocked passage.
+
+What the category publishes per alignment, after both fixes:
+
+| flag 968 | Published |
+|---:|---|
+| 0 | Northern east, Northern south, **Centre passage**, Southern north, Southern south |
+| 1 | Northern east, Northern north, Southern east, Southern west |
+| 2 | Northern north, Northern west, Southern south |
+| 3 | Northern west, Southern east, Southern west |
+
+Alignment 0 is the one that lets you cross between the piers.
 
 ### 2.3 The pier is also an interaction-region owner
 
@@ -218,17 +264,35 @@ wiring, because the guide reads entity navigation's own selection.
 
 ## 5. Consequences today
 
-**Routing is still not alignment-aware — unchanged, and deliberately so.**
-`StaticObjectEnableState.is_enabled` returns `True` unconditionally, so
-`build_room_geometry` treats all nine segments' hit models as present in
-all four alignments. The 2026-08-09 work did **not** touch this: what a
-present segment's hit model means for *walkability* is a separate question
-from what it means for *connectivity*, and it is not settled. Guessing it
-would be the one way to make routing worse than it already is.
+**Routing now reads the engine's enable state (2026-08-13) — but the Gateon
+cross-check has not been run live.**
+
+`StaticObjectEnableState.is_enabled` used to return `True` unconditionally,
+so `build_room_geometry` treated all nine segments' hit models as present in
+all four alignments. `LiveObjectEnableState` now reads `GScolsys2`'s own
+per-object flags, and `NavigationService` invalidates cached geometry and
+discards an active route when they change, so an alignment change rebuilds
+the graph instead of steering on stale geometry. The structure and its
+verification are in COLLISION_DETECTION_INVESTIGATION.md §"Runtime
+object-enable state"; `M6_out` is the game's heaviest user of the mechanism
+(200 `SetObjEnable` calls, more than the next six rooms combined).
+
+Two things are still **not** settled, and neither is guessed:
+
+- **What a present segment's hit model means for walkability**, as distinct
+  from connectivity. Reading the enable bit answers "is this object
+  considered", not "does considering it block a step". That question is
+  unchanged by this work.
+- **Live confirmation *here*.** The mechanism itself is live-validated as of
+  2026-08-13, but in Agate, not Gateon (`M3_out` object 33; see
+  COLLISION_DETECTION_INVESTIGATION.md §"Live confirmation"). Agate's toggle
+  is applied at room load; **Gateon is the only place that toggles objects
+  mid-session**, so §7's comparison against `pier_def`/flag 968 remains the
+  outstanding oracle for the invalidation path specifically — see step 2.
 
 Practical consequence for the player, stated plainly: **use the plain
-beacon (ctrl+shift+g) for bridge connections, not the routed guide
-(ctrl+shift+n)**, until this is resolved. The beacon points straight at
+beacon (ctrl+g) for bridge connections, not the routed guide
+(ctrl+n)**, until this is resolved. The beacon points straight at
 the connection and cannot mis-route; the router may refuse or detour
 because it believes segments are in the way.
 
@@ -257,17 +321,29 @@ Remaining, ordered so nothing is built on an unverified layer:
 1. **Live-validate the connection points.** Stand on a pier, cycle the
    `bridge` category, walk to one announced connection, confirm you can
    actually cross there. Then change the alignment and confirm the list
-   changes. Two observations settle the polarity beyond the 12/12
-   agreement, and settle it *in the game* rather than against a document.
+   changes. **Never done, and skipping it is what let the inverted
+   polarity ship for nine days** — the 12/12 document agreement was
+   allowed to stand in for it. The discriminating check is one minute:
+   in alignment 0 you should be able to walk straight through the middle
+   from one pier to the other (Centre passage is listed); in alignments 2
+   and 3 you should not, and no interior connection is offered.
 2. **Live-validate the `GScolsys2` enable records** — the gate on routing.
    Read the nine records for entries 23-31 in one known alignment and
    confirm they match §2.1's row.
-3. **Establish the file-entry → enable-record mapping.** Almost certainly
-   the identity mapping, but it must be *shown*. Until it is,
-   `StaticObjectEnableState` stays the honest placeholder it is.
-4. **Settle what a present segment's hit model does to walkability**, then
-   wire enable state into `build_room_geometry` and into cache
-   invalidation so an alignment change rebuilds the route.
+3. ~~**Establish the file-entry → enable-record mapping.**~~ **Done
+   2026-08-13, statically.** It *is* the identity mapping, and it is now
+   shown rather than assumed: `GScolsys2LoadCCD` walks the CCD entry array
+   (stride `0x40`) and the OBJ array (stride `0x28`) in lockstep, writing
+   entry *i* into record *i*, and both the walk and hit loops call
+   `GScolsys2GetObjEnable(i, …)` with that same *i*. Still owed: the live
+   read in step 2.
+4. ~~**Settle what a present segment's hit model does to walkability.**~~
+   **Answered 2026-08-18: an enabled segment BLOCKS.** See §2.4. The
+   enable state was already wired into `build_room_geometry` and into
+   cache invalidation (an alignment change rebuilds the route); what was
+   missing was the meaning of the bit, which is now settled. Worth
+   re-checking that routing consumes it with the same sense the entity
+   category now does.
 5. **Bridge controls.** Investigate `pier_trouble`'s two method-2 regions
    in `M6_out`; if they are the control pads, publish them and delete
    `_RAW_PAD_TRANSITIONS`' 16 coordinate boxes.

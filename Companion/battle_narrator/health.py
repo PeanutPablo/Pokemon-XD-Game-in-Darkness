@@ -87,6 +87,31 @@ class PendingHealth:
     last_settled: tuple | None = None
     stable_count: int = 0
 
+STATUS_NAMES = {
+    0: None,
+    3: "poisoned",
+    4: "badly poisoned",
+    5: "paralyzed",
+    6: "burned",
+    7: "frozen",
+    8: "asleep",
+}
+"""Major-condition byte -> the word for it, or None for "healthy".
+
+Lives here, beside `valid_major_conditions`'s only consumer, because three
+separate features now need it: the ctrl+H battle summary, the ctrl+1..6
+party readout, and battle target selection. It was originally private to
+hotkeys.py, and duplicating it into the other two is how they would come
+to disagree about what a 4 means."""
+
+
+def condition_name(condition):
+    """The word for a major-condition byte, or None -- for any value,
+    including ones outside the verified set, which are treated as "nothing
+    known" rather than reported as a status that does not exist."""
+    return STATUS_NAMES.get(condition)
+
+
 def normalized_name(value):
     return " ".join(value.split()).casefold()
 
