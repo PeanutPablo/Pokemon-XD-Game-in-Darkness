@@ -62,6 +62,24 @@ this project.
   one level above the project, outside anything the builder staged, and
   the missing files raised `LocalDataError` on the first beacon that came
   into range — a clean build that died minutes into play.
+- **Footsteps are complete and usable** — three checks, because footsteps
+  fail in the opposite way to beacons and are therefore much easier to
+  ship broken. The staging loop **enumerates** `sounds/footsteps/` rather
+  than copying a hardcoded list of seven filenames, so an eighth
+  recording added later actually ships. The staged count is then compared
+  against the source count. Finally `resolve_step_paths` is run against
+  the staged tree, through `resolve_sound_dir`, exactly as the runtime
+  will call it: every recording must open as a WAV and cache a 16-bit
+  copy, and the build fails if the resolver returns the synthesized
+  fallback click.
+
+  Why this is worth three checks: a missing beacon raises `LocalDataError`
+  and stops the narrator, which nobody can miss. A missing footstep
+  recording degrades to a quiet synthesized click and — until 2026-08-18 —
+  said nothing in any log. The reported symptom is "the beacons activate
+  but not the footsteps", which is exactly what that looks like from a
+  chair. The runtime now warns, naming the reason, and reports at startup
+  which of the two it is using.
 - **The staged tree imports** — every staged module is compiled, and
   `setup_companion`, `launch_accessible` and `bootstrap_game_data` are
   imported from the staged copy, **using the staged runtime** when there

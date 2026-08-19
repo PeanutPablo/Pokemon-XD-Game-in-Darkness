@@ -242,32 +242,63 @@ def resolve_blocked_path(asset_dir):
     return path
 
 
-def resolve_step_paths(asset_dir, footstep_sounds_dir=None):
+def resolve_step_paths(asset_dir, footstep_sounds_dir=None, logger=None):
     """Every footstep clip, 16-bit and cached, or the synthesized fallback.
 
     Same reasoning as `resolve_blocked_path`, and idempotent for the same
     reason: `_ensure_16bit_wav` and `_write_click_wav` both skip work that
     is already done, so calling this from two places costs one conversion
-    in total, not two."""
+    in total, not two.
+
+    **The fallback is reported.** It used to be taken in silence, and that
+    silence is the whole reason "the beacons activate but not the
+    footsteps" was a mystery rather than a log line. The asymmetry is
+    real and deliberate -- a missing beacon raises `LocalDataError` and
+    stops the narrator, while a missing footstep recording degrades to a
+    synthesized click so the player keeps SOMETHING underfoot -- but
+    degrading quietly is not the same as degrading invisibly. Every route
+    to the fallback now says which one it took, at warning level."""
     asset_dir = Path(asset_dir)
     asset_dir.mkdir(parents=True, exist_ok=True)
     paths = ()
+    reason = "no footstep directory was configured"
     if footstep_sounds_dir is not None:
         sounds_dir = Path(footstep_sounds_dir)
-        if sounds_dir.is_dir():
-            # `SpatialWavePlayer.play()` (npc_beacons.py) only accepts
-            # 16-bit WAV; the project owner's real footstep recordings are
-            # 24-bit, so each gets a cached 16-bit copy written once, not
-            # converted on every step.
-            paths = tuple(
-                _ensure_16bit_wav(
-                    source,
-                    asset_dir / f"_footstep_16bit_{source.stem}.wav",
-                )
-                for source in sorted(sounds_dir.glob("*.wav"))
-            )
+        if not sounds_dir.is_dir():
+            reason = f"{sounds_dir} does not exist"
+        else:
+            sources = sorted(sounds_dir.glob("*.wav"))
+            if not sources:
+                reason = f"{sounds_dir} contains no .wav files"
+            else:
+                # `SpatialWavePlayer.play()` (npc_beacons.py) only accepts
+                # 16-bit WAV; the project owner's real footstep recordings
+                # are 24-bit, so each gets a cached 16-bit copy written
+                # once, not converted on every step.
+                try:
+                    paths = tuple(
+                        _ensure_16bit_wav(
+                            source,
+                            asset_dir / f"_footstep_16bit_{source.stem}.wav",
+                        )
+                        for source in sources
+                    )
+                except (OSError, wave.Error, ValueError) as problem:
+                    # Caught rather than raised: this runs from the
+                    # narrator's constructor, and a footstep cache that
+                    # cannot be written -- a read-only folder, a full disk,
+                    # security software refusing the write -- must not take
+                    # the whole companion down with it.
+                    paths = ()
+                    reason = (f"converting the recordings in {sounds_dir} "
+                              f"failed: {problem}")
     if paths:
         return paths
+    if logger is not None:
+        logger.warning(
+            "TERRAIN FOOTSTEPS falling back to the synthesized click: %s. "
+            "Beacons are unaffected, which is why this is easy to miss.",
+            reason)
     fallback_path = asset_dir / "_terrain_step_base.wav"
     if not fallback_path.exists():
         _write_click_wav(fallback_path, duration=0.09, frequency=260.0)
@@ -293,12 +324,23 @@ class TerrainTonePlayer:
     harsh click, since the project owner asked specifically about
     footsteps."""
 
-    def __init__(self, wave_player, asset_dir, footstep_sounds_dir=None):
+    def __init__(self, wave_player, asset_dir, footstep_sounds_dir=None,
+                 logger=None):
         self.wave_player = wave_player
         self.asset_dir = Path(asset_dir)
         self._blocked_path = resolve_blocked_path(self.asset_dir)
         self._step_paths = resolve_step_paths(
-            self.asset_dir, footstep_sounds_dir)
+            self.asset_dir, footstep_sounds_dir, logger)
+
+    @property
+    def using_real_footsteps(self):
+        """False when play_step is firing the synthesized click.
+
+        Exposed so the state is inspectable rather than only audible --
+        `phase1b_app` reports it once at startup, and a test can assert on
+        it without listening to anything."""
+        return not any(path.name == "_terrain_step_base.wav"
+                       for path in self._step_paths)
 
     STEP_GAIN = 0.9
     """Raised 50% from 0.6 at the project owner's request (2026-08-10)

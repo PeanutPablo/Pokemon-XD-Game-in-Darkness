@@ -138,22 +138,32 @@ foreach ($name in $approvedCategorySounds) {
     Copy-ApprovedFile ("sounds/" + $name)
 }
 
-# Real recorded footsteps. Unlike the beacons these degrade gracefully --
-# TerrainTonePlayer synthesizes a click when the directory is missing -- but
-# footsteps default ON, so shipping without them means every recipient hears
-# the placeholder instead of the intended cue.
-$approvedFootsteps = @(
-    'footstep 1-001.wav',
-    'footstep 1-002.wav',
-    'footstep 1-003.wav',
-    'footstep 1-004.wav',
-    'footstep 1-005.wav',
-    'footstep 1-006.wav',
-    'footstep 1-007.wav'
-)
-foreach ($name in $approvedFootsteps) {
-    Copy-ApprovedFile ("sounds/footsteps/" + $name)
+# Real recorded footsteps.
+#
+# ENUMERATED, not listed. This was a hardcoded list of seven filenames,
+# which is the one shape that cannot survive someone adding an eighth
+# recording: the new file simply would not ship, and nothing anywhere would
+# say so. That matters more here than for any other asset because of how
+# the runtime treats a shortfall -- a missing BEACON raises LocalDataError
+# and kills the narrator on the first beacon in range, which is impossible
+# to miss, whereas resolve_step_paths falls back to a synthesized click and
+# says nothing at all. The reported symptom is exactly what that looks like
+# from a chair: "the beacons activate but not the footsteps".
+#
+# Every .wav in the source directory is staged, and the count is checked
+# again after staging.
+$footstepSource = Join-Path $project 'sounds/footsteps'
+if (-not (Test-Path -LiteralPath $footstepSource -PathType Container)) {
+    throw "No sounds/footsteps directory at $footstepSource. Footsteps default ON; a release without them plays a synthesized click and reports nothing."
 }
+$footstepFiles = @(Get-ChildItem -LiteralPath $footstepSource -File -Filter '*.wav' | Sort-Object Name)
+if ($footstepFiles.Count -eq 0) {
+    throw "sounds/footsteps contains no .wav files. Refusing to build a release whose footsteps would silently fall back to a synthesized click."
+}
+foreach ($file in $footstepFiles) {
+    Copy-ApprovedFile ("sounds/footsteps/" + $file.Name)
+}
+Write-Output "Staged $($footstepFiles.Count) footstep recordings."
 
 # Required by CC-BY 4.0 for the Mossy4 pack under Companion/assets/.
 Copy-ApprovedFile 'sounds/_readme_and_license.txt'
@@ -228,6 +238,18 @@ if ($missingBeaconSounds) {
         ". The narrator would start and then die on the first beacon.")
 }
 
+# The footstep counterpart. Presence alone is not the question here: what
+# the player hears depends on resolve_step_paths finding readable WAVs and
+# being able to cache a 16-bit copy of each, and if any of that fails it
+# returns one synthesized click and carries on silently. So the count is
+# checked, rather than assumed from the copy loop above.
+$stagedFootsteps = @(Get-ChildItem -LiteralPath (Join-Path $stage 'sounds/footsteps') -File -Filter '*.wav' -ErrorAction SilentlyContinue)
+if ($stagedFootsteps.Count -ne $footstepFiles.Count) {
+    throw ("Staged $($stagedFootsteps.Count) footstep recordings but the " +
+        "project has $($footstepFiles.Count). A release short of them " +
+        "plays a synthesized click and reports nothing.")
+}
+
 # Import check on the STAGED tree. The allowlist is a hand-maintained list
 # of files, so the failure it invites is shipping a module whose import
 # target was left off -- which surfaces as a traceback on the recipient's
@@ -264,7 +286,35 @@ for name in ('setup_companion', 'launch_accessible', 'bootstrap_game_data'):
     except Exception as exc:
         print(f'{name} does not import from the staged tree: {exc}')
         raise SystemExit(1)
-print('ok')
+
+# Footsteps, asked of the staged tree the way the runtime will ask.
+#
+# The count check earlier proves the files were copied. This proves they
+# are usable: resolve_step_paths has to find them through resolve_sound_dir,
+# open each as a WAV, and cache a 16-bit copy of the 24-bit recordings. If
+# any step fails it returns a single synthesized click instead and logs
+# nothing, so the player hears working beacons and no footsteps -- the exact
+# symptom this check exists to make impossible to ship.
+import tempfile
+from battle_narrator.npc_beacons import resolve_sound_dir
+from battle_narrator.terrain_footsteps import resolve_step_paths
+sound_dir = resolve_sound_dir(staged)
+source_steps = sorted((sound_dir / 'footsteps').glob('*.wav'))
+if not source_steps:
+    print(f'no footstep recordings under {sound_dir / "footsteps"}')
+    raise SystemExit(1)
+with tempfile.TemporaryDirectory() as scratch:
+    resolved = resolve_step_paths(scratch, sound_dir / 'footsteps')
+    fallback = [p for p in resolved if p.name == '_terrain_step_base.wav']
+    if fallback:
+        print('resolve_step_paths fell back to a synthesized click; the '
+              'release would ship with no real footsteps')
+        raise SystemExit(1)
+    if len(resolved) != len(source_steps):
+        print(f'resolved {len(resolved)} footsteps from '
+              f'{len(source_steps)} recordings')
+        raise SystemExit(1)
+print(f'ok ({len(resolved)} footsteps)')
 "@ $stagedCompanion
     if ($LASTEXITCODE -ne 0) {
         throw "Staged tree failed its import check: $check"

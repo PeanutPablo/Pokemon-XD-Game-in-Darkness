@@ -12,6 +12,7 @@ from battle_narrator.terrain_footsteps import (
     TerrainTonePlayer,
     find_ground_triangle,
     load_walk_model_triangles,
+    resolve_step_paths,
 )
 
 REAL_COLLISION_DIR = (
@@ -516,6 +517,123 @@ class LoadWalkModelTrianglesTests(unittest.TestCase):
             REAL_COLLISION_DIR, {}, cache, 999,
             logging.getLogger("load-walk-model-test"))
         self.assertEqual(triangles, ())
+
+
+class RecordingLogger:
+    """Captures warnings so the fallback can be asserted on, not listened to."""
+
+    def __init__(self):
+        self.warnings = []
+        self.infos = []
+
+    def warning(self, message, *args):
+        self.warnings.append(message % args if args else message)
+
+    def info(self, message, *args):
+        self.infos.append(message % args if args else message)
+
+    def debug(self, *_args, **_kwargs):
+        pass
+
+
+def write_wav(path, sample_width=2, frames=200):
+    """A minimal readable WAV, at whatever bit depth the test needs."""
+    import wave as wave_module
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave_module.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(sample_width)
+        handle.setframerate(22050)
+        handle.writeframes(b"\x00" * frames * sample_width)
+    return path
+
+
+class FootstepFallbackReportingTests(unittest.TestCase):
+    """The silence that made "beacons work, footsteps do not" a mystery.
+
+    A missing beacon raises LocalDataError and stops the narrator, which
+    nobody can miss. A missing footstep recording degrades to a synthesized
+    click, which is quiet enough to be heard as nothing at all -- and until
+    this, it was taken without a word in any log. Degrading quietly is
+    fine; degrading invisibly is what cost the diagnosis."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.assets = self.root / "assets"
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_real_recordings_are_used_and_nothing_is_warned(self):
+        steps = self.root / "footsteps"
+        write_wav(steps / "footstep 1-001.wav")
+        write_wav(steps / "footstep 1-002.wav")
+        logger = RecordingLogger()
+        resolved = resolve_step_paths(self.assets, steps, logger)
+        self.assertEqual(len(resolved), 2)
+        self.assertEqual(logger.warnings, [])
+
+    def test_every_recording_is_used_not_just_the_first(self):
+        """Pins the builder's promise: an eighth file added later plays."""
+        steps = self.root / "footsteps"
+        for index in range(1, 9):
+            write_wav(steps / f"footstep 1-{index:03d}.wav")
+        resolved = resolve_step_paths(self.assets, steps)
+        self.assertEqual(len(resolved), 8)
+
+    def test_a_missing_directory_is_warned_about_by_name(self):
+        logger = RecordingLogger()
+        absent = self.root / "not-here"
+        resolved = resolve_step_paths(self.assets, absent, logger)
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(len(logger.warnings), 1)
+        self.assertIn(str(absent), logger.warnings[0])
+
+    def test_an_empty_directory_is_warned_about_distinctly(self):
+        logger = RecordingLogger()
+        empty = self.root / "footsteps"
+        empty.mkdir()
+        resolve_step_paths(self.assets, empty, logger)
+        self.assertEqual(len(logger.warnings), 1)
+        self.assertIn("no .wav files", logger.warnings[0])
+
+    def test_an_unreadable_recording_degrades_instead_of_raising(self):
+        """This runs from the narrator's constructor. A corrupt file must
+        cost the footsteps, not the whole companion."""
+        steps = self.root / "footsteps"
+        steps.mkdir()
+        (steps / "broken.wav").write_bytes(b"not a wav at all")
+        logger = RecordingLogger()
+        resolved = resolve_step_paths(self.assets, steps, logger)
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(resolved[0].name, "_terrain_step_base.wav")
+        self.assertEqual(len(logger.warnings), 1)
+        self.assertIn("failed", logger.warnings[0])
+
+    def test_no_logger_still_falls_back_without_raising(self):
+        resolved = resolve_step_paths(self.assets, self.root / "absent")
+        self.assertEqual(resolved[0].name, "_terrain_step_base.wav")
+
+    def test_the_player_reports_which_of_the_two_it_is_using(self):
+        steps = self.root / "footsteps"
+        write_wav(steps / "footstep 1-001.wav")
+        real = TerrainTonePlayer(
+            FakeWavePlayer(), self.assets, footstep_sounds_dir=steps)
+        self.assertTrue(real.using_real_footsteps)
+
+        fallback = TerrainTonePlayer(
+            FakeWavePlayer(), self.root / "assets2",
+            footstep_sounds_dir=self.root / "absent")
+        self.assertFalse(fallback.using_real_footsteps)
+
+    def test_twenty_four_bit_recordings_are_converted_and_cached(self):
+        """The real recordings are 24-bit and SpatialWavePlayer takes 16."""
+        steps = self.root / "footsteps"
+        write_wav(steps / "footstep 1-001.wav", sample_width=3)
+        resolved = resolve_step_paths(self.assets, steps)
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(resolved[0].parent, self.assets)
+        self.assertTrue(resolved[0].is_file())
 
 
 if __name__ == "__main__":

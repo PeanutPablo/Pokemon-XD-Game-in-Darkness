@@ -6,6 +6,97 @@ Per [ACCESSIBILITY_MASTER_PLAN.md](ACCESSIBILITY_MASTER_PLAN.md)'s work-in-progr
 
 ---
 
+## Open finding — footsteps go silent while beacons keep working (2026-08-18)
+
+**Reported by the project owner as "a few times the beacons will activate
+but not the footsteps." Diagnosed from their own log. NOT FIXED — the fix
+changes live movement behaviour and this project does not make that change
+without a live test.**
+
+The cause is not packaging and not settings. Both were checked and ruled
+out first: `companion_settings.json` has `sounds.footsteps: true` and
+`sounds.footstep_volume: 1.0` (louder than the beacons, at 0.4), and all
+seven recordings are present and cached as 16-bit.
+
+`Companion/logs/battle_narrator_phase1b.log` spans 2026-07-24 to
+2026-08-18 across many sessions, so it is quoted **scoped to 2026-08-18
+alone** — the whole-file totals (2,892,456 occurrences) include the
+vanilla-XD era and prove nothing about now.
+
+On 2026-08-18: of **191,186** log lines, **98,639 — 52% of everything
+logged that day — are `hero model resource 100 not found`**, and **49,579**
+of those are `Isolated terrain-footstep read failure`.
+`hero_model_address` (`npc_beacons.py`) walks the resource list for a node
+matching `group_id == 0 and candidate_id == 100 and state == 0` and raises
+`MemoryError` when there is none.
+
+Note the shape of it: 49,579 failures produced only **104** logged
+`CLEAR`s, because `clear` logs only when `_last_position is not None`.
+The reader is therefore re-seeding on an occasional good poll and being
+cleared again before it can accumulate — oscillating, never reaching the
+threshold.
+
+Why that silences footsteps specifically, while beacons survive it:
+
+- `phase1b_lifecycle.poll_terrain_footsteps` catches the `MemoryError`,
+  logs it at **debug**, and calls `clear("terrain-footstep read failure")`.
+- `TerrainFootstepReader.clear` sets `_accumulated_distance = 0.0`.
+- A footstep needs `STEP_DISTANCE = 12.0` world units **accumulated across
+  consecutive successful polls**.
+
+So any failure rate frequent enough to interrupt 12 units of travel means
+the accumulator never reaches its threshold and **no footstep ever plays**.
+A beacon re-aims from whatever position it last got and is indifferent to
+gaps, which is exactly why one keeps working while the other does not —
+and the log's last lines that day show `NPC BEACON` firing normally. The
+whole thing is invisible because the only record is a debug line.
+
+One corroborating signal, offered as suggestive rather than proof:
+`new terrain type observed` fired **0** times on 2026-08-18. `_known_types`
+is per-instance and resets every launch, so a day of play that plays
+footsteps normally would log it several times. It is not conclusive because
+that line is skipped when `collision_type is None`, which happens whenever
+`find_ground_triangle` finds nothing — a step still plays in that case.
+
+### What to check before fixing
+
+1. **Is resource id 100 right for XG?** The hero model id is a repository
+   constant, and [XG_COMPATIBILITY.md](XG_COMPATIBILITY.md) §9 lists the
+   profile addresses that were never checkable statically. This has the
+   exact shape of the four defects that document already records: a
+   constant that was true of one build. If 100 is wrong for XG, the read
+   failure is the bug and the accumulator is a symptom.
+2. **Or is the failure legitimate and transient** — the hero model
+   genuinely absent during transitions, loading, cutscenes — in which case
+   the bug is that a *transient* read failure discards accumulated walking
+   distance at all.
+
+Those want different fixes and the log alone does not separate them. Get
+the success/failure ratio per second of ordinary walking first.
+
+### Proposed fix, once (1) is settled
+
+Separate the two meanings of `clear`. A room change or a dialogue should
+discard accumulated distance; a one-poll read failure should discard only
+`_last_position`, so the next good pair resumes accumulating instead of
+starting over. Raise the failure out of `debug` — a million of anything
+should not sit at debug level.
+
+### Already done (2026-08-18)
+
+Not the fix, but the reason this took a log dive to find is now closed:
+`resolve_step_paths` warns, naming the reason, instead of falling back to
+the synthesized click in silence; `TerrainTonePlayer.using_real_footsteps`
+exposes which of the two is in use and `phase1b_app` states it at startup;
+and the release builder enumerates `sounds/footsteps/` rather than copying
+a hardcoded list of seven, checks the staged count, and runs
+`resolve_step_paths` against the staged tree so a release whose footsteps
+would fall back cannot be built. See
+[FIRST_RUN_AND_RUNTIME.md](FIRST_RUN_AND_RUNTIME.md) and
+[README-DISTRIBUTION.md](../README-DISTRIBUTION.md).
+
+---
+
 ## Handoff — next session starts here (2026-08-09, latest)
 
 **Entity-navigation re-audit (Pass 2) complete. No production code

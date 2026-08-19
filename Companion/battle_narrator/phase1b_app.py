@@ -432,7 +432,8 @@ def build_sound_library(base, logger):
     })
     try:
         steps = resolve_step_paths(
-            asset_dir, footstep_sounds_dir=sound_dir / "footsteps")
+            asset_dir, footstep_sounds_dir=sound_dir / "footsteps",
+            logger=logger)
         paths["footstep"] = steps[0]
         paths["blocked"] = resolve_blocked_path(asset_dir)
     except (OSError, ValueError, wave.Error) as exc:
@@ -1471,7 +1472,17 @@ def run(argv=None, backend=dme, speech_backend=tolk):
             SpatialWavePlayer(),
             base / "logs" / "terrain_footsteps" / "generated_tones",
             footstep_sounds_dir=resolve_sound_dir(base) / "footsteps",
+            logger=logger,
         )
+        # Stated once, at startup, whichever way it went. A player who
+        # reports "the beacons work but I get no footsteps" can then be
+        # answered from the log instead of from guesswork -- the fallback
+        # click is quiet enough to be heard as nothing at all.
+        logger.info(
+            "TERRAIN FOOTSTEPS using %s",
+            "the recorded footsteps"
+            if terrain_tone_player.using_real_footsteps
+            else "the SYNTHESIZED CLICK (no usable recordings found)")
 
         def terrain_footstep_factory():
             pose_source = NPCMemorySource(connection.memory, XD_US_REV0)
