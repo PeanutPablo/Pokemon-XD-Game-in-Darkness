@@ -18,9 +18,29 @@ import sys
 from pathlib import Path
 
 COMPANION = Path(__file__).resolve().parent
+RELEASE = COMPANION.parent
 SETTINGS = COMPANION / "companion_settings.json"
 NARRATOR = COMPANION / "run_accessible_pokemon_xd.py"
 GAME_DATA = COMPANION / "_dialogue_extraction"
+
+
+def windowless_python():
+    """The interpreter to start the narrator with, or None if there is none.
+
+    `Runtime/` is the interpreter a built release carries with it, so a
+    player needs no Python of their own; `.venv` is what a source checkout
+    builds. Runtime wins when both exist, which happens when a developer
+    unpacks a release inside a working tree -- the release is then the
+    thing under test and its own interpreter is the one that should run.
+
+    `pythonw.exe`, not `python.exe`: the narrator is detached and long-
+    lived, and the console window `python.exe` opens would sit in the
+    alt-tab order for the whole session with nothing in it."""
+    for base in (RELEASE / "Runtime", COMPANION / ".venv" / "Scripts"):
+        candidate = base / "pythonw.exe"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def fail(message):
@@ -60,8 +80,8 @@ def main():
             "The game data is missing. Run Setup.cmd to generate it from "
             "your own game image.")
 
-    pythonw = COMPANION / ".venv" / "Scripts" / "pythonw.exe"
-    if not pythonw.is_file():
+    pythonw = windowless_python()
+    if pythonw is None:
         return fail(
             "The Python environment is missing. Run Setup.cmd to build it.")
 

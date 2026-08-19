@@ -296,9 +296,20 @@ The release is allowlist-built and contains **no game data of any kind**.
 | Step | Owner |
 |---|---|
 | Build the archive | `Tools/Build Accessibility Release.ps1` |
+| Stage the bundled interpreter | `Tools/build_runtime.py` |
+| Find Dolphin and the player's game | `Companion/setup_discovery.py` |
 | First-run setup | `Setup.cmd` → `Companion/setup_companion.py` |
 | Generate game data from the player's own disc | `Companion/bootstrap_game_data.py` |
 | Launch | `Launch Accessible XD.cmd` → `Companion/launch_accessible.py` |
+
+**First run, as of 2026-08-18: extract, `Setup.cmd`, `Launch Accessible
+XD.cmd`.** No Python to install — a release carries its own in `Runtime/`
+— and no paths to type: setup finds Dolphin and the disc image and asks
+the player to confirm or pick a number. Extracting the release inside the
+Dolphin folder makes it a single Enter. Verified end to end on 2026-08-18
+from a clean extraction with no Python on the path; the live *launch* path
+from a bundled release is still untested. Detail and the unverified list:
+[FIRST_RUN_AND_RUNTIME.md](FIRST_RUN_AND_RUNTIME.md).
 
 **Why setup needs the player's disc.** The companion reads the game's own
 text, item, move and collision tables. Those are copyrighted and are
@@ -320,7 +331,8 @@ back out of `PASSIVE_BEACON_SOUND_FILES` so a new category cannot ship
 silent; and the staged tree compiles and its setup-path entry points
 import.
 
-Detail: [README-DISTRIBUTION.md](../README-DISTRIBUTION.md),
+Detail: [FIRST_RUN_AND_RUNTIME.md](FIRST_RUN_AND_RUNTIME.md),
+[README-DISTRIBUTION.md](../README-DISTRIBUTION.md),
 [DISTRIBUTION_PIPELINE.md](DISTRIBUTION_PIPELINE.md),
 `Tools/release-manifest.txt`.
 

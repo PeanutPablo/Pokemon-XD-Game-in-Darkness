@@ -1,12 +1,22 @@
 [CmdletBinding()]
 param(
-    [string]$Version = (Get-Date -Format 'yyyy-MM-dd-HHmm')
+    [string]$Version = (Get-Date -Format 'yyyy-MM-dd-HHmm'),
+
+    # Skips staging the bundled interpreter. For a fast check of the code
+    # side of a build only -- the archive it produces is NOT the one to
+    # give anyone, because Setup would then fall back to hunting for a
+    # Python on the recipient's machine, which is the whole problem the
+    # bundled runtime exists to remove.
+    [switch]$NoRuntime
 )
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $workspace = Split-Path -Parent $project
 $releaseRoot = Join-Path $workspace 'Accessibility Releases'
+# Outside the project, beside the releases: a ~10 MB download that would
+# otherwise be re-fetched on every build, and that must never be committed.
+$runtimeCache = Join-Path $workspace 'RuntimeCache'
 $packageName = "Pokemon-XG-Accessibility-$Version"
 $stage = Join-Path $releaseRoot $packageName
 $archive = Join-Path $releaseRoot "$packageName.zip"
@@ -51,6 +61,12 @@ $approvedFiles = @(
     'Companion/bootstrap_game_data.py',
     'Companion/extract_warp_collision_data.py',
     'Companion/setup_companion.py',
+    # Finds Dolphin and the player's disc image, so setup can ask them to
+    # confirm rather than to type an absolute path into a console. Setup
+    # imports it unconditionally, so omitting it here would be a traceback
+    # on the recipient's very first action -- the staged import check below
+    # is what catches that.
+    'Companion/setup_discovery.py',
     'Companion/launch_accessible.py',
     'Companion/check_game_compatibility.py',
     # The static counterpart: answers the same compatibility question from a
@@ -147,6 +163,36 @@ Copy-ApprovedFile 'sounds/_readme_and_license.txt'
 # updater has to compare against, and what a bug report needs to quote.
 Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $Version -Encoding ascii
 
+# The bundled interpreter. Without this the recipient's first instruction is
+# "go and install Python 3.12" -- not merely 3.12-or-newer, because
+# dolphin-memory-engine publishes no wheel past it, so anyone already on
+# 3.13 had to be talked into installing an older one alongside. That was the
+# hardest step in the whole process and it came first. build_runtime.py
+# stages CPython's official embeddable package with every required package
+# already inside it, and verifies the result by running the staged
+# interpreter itself; a release that reaches the next line needs no Python
+# on the machine it lands on, and no internet connection to set itself up.
+$pythonForBuild = Join-Path $project 'Companion/.venv/Scripts/python.exe'
+if ($NoRuntime) {
+    Write-Warning ('-NoRuntime: this archive has no bundled interpreter and ' +
+        'is not fit to hand to anyone.')
+} elseif (-not (Test-Path -LiteralPath $pythonForBuild -PathType Leaf)) {
+    throw ("No .venv interpreter at $pythonForBuild. The bundled runtime is " +
+        "built by installing wheels for the interpreter running pip, so a " +
+        "matching 3.12 is required here. Run Setup.cmd in the checkout first, " +
+        "or pass -NoRuntime for a code-only archive.")
+} else {
+    Write-Output 'Staging the bundled Python runtime ...'
+    & $pythonForBuild (Join-Path $PSScriptRoot 'build_runtime.py') `
+        --target (Join-Path $stage 'Runtime') `
+        --requirements (Join-Path $project 'Companion/requirements.txt') `
+        --companion (Join-Path $stage 'Companion') `
+        --cache $runtimeCache
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Staging the bundled Python runtime failed.'
+    }
+}
+
 $forbiddenExtensions = @('.iso', '.rvz', '.wbfs', '.gcz', '.wia', '.ciso', '.nfs', '.tgc', '.gci', '.sav')
 $forbiddenNames = @('_dialogue_extraction', 'logs', '.venv', 'research', 'personal music overrides', 'private music overrides')
 $violations = Get-ChildItem -LiteralPath $stage -Recurse -Force | Where-Object {
@@ -189,8 +235,22 @@ if ($missingBeaconSounds) {
 # syntax problems, and importing the two setup-path entry points (the only
 # ones that reach a recipient before any third-party package is installed)
 # catches a missing local import.
+#
+# Run under the STAGED RUNTIME when there is one, not under the project's
+# .venv. The two are not interchangeable, and assuming they were shipped a
+# release that could not start: CPython's embeddable package omits `venv`,
+# `ensurepip` and `tkinter`, so `setup_companion.py`'s module-level
+# `import venv` -- perfectly fine in the .venv this check used to run in --
+# raised ModuleNotFoundError on the recipient's machine before setup
+# printed a single line. The check is only worth anything if it runs on the
+# interpreter the recipient will actually use.
 $stagedCompanion = Join-Path $stage 'Companion'
-$pythonForCheck = Join-Path $project 'Companion/.venv/Scripts/python.exe'
+$stagedRuntime = Join-Path $stage 'Runtime/python.exe'
+if (Test-Path -LiteralPath $stagedRuntime -PathType Leaf) {
+    $pythonForCheck = $stagedRuntime
+} else {
+    $pythonForCheck = Join-Path $project 'Companion/.venv/Scripts/python.exe'
+}
 if (Test-Path -LiteralPath $pythonForCheck -PathType Leaf) {
     $check = & $pythonForCheck -c @"
 import compileall, importlib.util, pathlib, sys
@@ -214,8 +274,8 @@ print('ok')
         Where-Object { $_.Name -eq '__pycache__' } |
         Remove-Item -Recurse -Force
 } else {
-    Write-Warning ("No .venv interpreter at $pythonForCheck -- skipping " +
-        "the staged import check.")
+    Write-Warning ("No interpreter at $pythonForCheck -- skipping the " +
+        "staged import check.")
 }
 
 Compress-Archive -LiteralPath $stage -DestinationPath $archive -CompressionLevel Optimal

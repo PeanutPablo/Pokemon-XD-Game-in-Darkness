@@ -24,23 +24,33 @@ reads.
 ## What you need before you start
 
 1. **Windows** with **NVDA** running.
-2. **Python 3.12.** Newer versions do not work: one of the required
-   packages has no build for them. Get it from python.org and tick
-   "Add python.exe to PATH" while installing.
-3. **Dolphin** (the GameCube emulator).
-4. **Your own copy of the game**, as a disc image — `.iso`, `.gcm`,
+2. **Dolphin** (the GameCube emulator).
+3. **Your own copy of the game**, as a disc image — `.iso`, `.gcm`,
    `.rvz`, `.gcz`, `.wia` or `.ciso`. This download does not include the
    game and cannot get it for you.
 
+You do **not** need to install Python. This download brings its own, in
+the `Runtime` folder, and does not touch or interfere with any Python you
+may already have.
+
 ## Installing
 
-1. Extract this folder anywhere you like.
-2. Run **`Setup.cmd`**. It asks for your disc image and for Dolphin,
-   builds the Python environment, and reads the game data it needs.
+1. Extract this folder anywhere you like. If you extract it **inside your
+   Dolphin folder**, or right next to it, setup will find Dolphin without
+   asking you anything at all.
+2. Run **`Setup.cmd`**.
 3. Run **`Launch Accessible XD.cmd`** to play.
 
-Setup takes a few minutes, mostly downloading packages. Everything it
-creates stays inside this folder.
+Setup does not ask you to type any paths. It looks for Dolphin and for
+your game image — in this folder, next to it, in the folders Dolphin is
+already configured to scan for games, and in the usual places like your
+desktop and Downloads — then reads out what it found and asks you to
+confirm. Press Enter to accept, or type a number to pick from a list. If
+it finds nothing, you can still type the full path.
+
+It then reads the game data it needs, which takes about a minute. It
+installs nothing, needs no internet connection, and everything it creates
+stays inside this folder.
 
 If you move Dolphin or your game image later, run `Setup.cmd` again.
 
@@ -56,7 +66,7 @@ leaves your computer.
 You can also do that step on its own:
 
 ```bash
-Companion\.venv\Scripts\python.exe Companion\bootstrap_game_data.py --disc "D:\path\to\your\game.iso"
+Runtime\python.exe Companion\bootstrap_game_data.py --disc "D:\path\to\your\game.iso"
 ```
 
 ## Hotkeys
@@ -122,8 +132,16 @@ It never guesses: if there is no real route, it says so and does not move.
   data. Run `Setup.cmd` again.
 - **Nothing is spoken** — check NVDA is running, and that Dolphin has
   focus. The companion starts speaking once a game is loaded.
-- **Setup says your Python is too new** — install Python 3.12
-  alongside; Setup prefers it automatically.
+- **Setup could not find Dolphin or your game** — type the full path when
+  it asks. Setup only searches a few levels down from the usual places,
+  so a game image kept somewhere unusual will not be found automatically.
+- **"This folder is too deep inside your drive for Windows"** — move the
+  whole folder somewhere with a shorter path, such as `C:\Games\`, and run
+  `Setup.cmd` again. Windows will not load parts of this program from a
+  path longer than 260 characters.
+- **Setup talks about installing Python 3.12** — you are running a source
+  checkout rather than a release. A release brings its own Python and
+  never asks for one.
 - **Everything is said twice** — an older copy of the companion is
   still running. Close it and relaunch.
 

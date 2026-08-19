@@ -18,11 +18,22 @@ Companion/requirements.txt
 Companion/bootstrap_game_data.py
 Companion/extract_warp_collision_data.py
 Companion/setup_companion.py
+Companion/setup_discovery.py
 Companion/launch_accessible.py
 Companion/check_game_compatibility.py
 Companion/check_image_compatibility.py
 Setup.cmd
 Launch Accessible XD.cmd
+
+# The bundled interpreter, staged by Tools/build_runtime.py rather than
+# copied from the checkout: CPython's official embeddable package for
+# Windows plus the four packages in requirements.txt, installed into
+# Runtime/Lib/site-packages. It is what makes a release self-contained --
+# no Python to install, no pip, no internet during setup. Not listed as
+# individual files because there are some thirty thousand of them; the
+# builder verifies it instead by running the staged interpreter and
+# importing everything the companion needs.
+Runtime/
 
 # Generated classification assets, derived from the extracted game scripts
 # and containing no copyrighted game text.

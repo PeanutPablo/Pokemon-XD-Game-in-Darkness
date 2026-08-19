@@ -55,3 +55,11 @@ Thumbs.db
 
 # Generated release archives live beside the project, never inside it.
 /Accessibility Releases/
+
+# The bundled interpreter. Tools/build_runtime.py stages this into a
+# release from CPython's official embeddable package; the download is
+# cached beside the project, and neither the cache nor a staged copy is
+# ever committed. ~10 MB compressed, ~104 MB unpacked, and reproducible
+# from the pinned SHA-256 in build_runtime.py.
+/RuntimeCache/
+/Runtime/
