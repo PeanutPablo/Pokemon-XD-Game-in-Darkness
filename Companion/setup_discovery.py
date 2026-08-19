@@ -369,20 +369,41 @@ def find_dolphin(release_dir, environ=None, budget=None, roots=None):
 def dolphin_config_dir(dolphin_exe, environ=None):
     """Where this Dolphin keeps `Dolphin.ini`, or None.
 
-    Two layouts, and the portable one has to be checked first: a build
-    with `portable.txt` beside the executable ignores the Documents copy
-    entirely, so preferring Documents would read a config the player's
-    Dolphin is not using."""
+    Three layouts, checked in this order:
+
+      1. `<dolphin>/User/Config`  when `portable.txt` sits beside the
+         executable. First, because such a build ignores the others
+         entirely -- preferring a shared location would read a config the
+         player's Dolphin is not using.
+      2. `%APPDATA%/Dolphin Emulator/Config`  the Windows default.
+      3. `<Documents>/Dolphin Emulator/Config`  where some builds and
+         older versions put it. Both the plain and OneDrive-redirected
+         Documents are tried.
+
+    **`%APPDATA%` was missing until 2026-08-18 and it is the common case.**
+    This was written checking only portable and Documents, and "verified"
+    on a machine whose Dolphin is neither: it has no `portable.txt` and no
+    `Documents/Dolphin Emulator`, so this returned None and the whole
+    "Dolphin's own game list" ranking never ran. It looked like it worked
+    because the images happened to sit beside `Dolphin.exe` and were found
+    by that branch instead. The real config was in
+    `%APPDATA%/Dolphin Emulator/Config`, naming that same folder as
+    `ISOPath0`."""
     environ = os.environ if environ is None else environ
     if dolphin_exe:
         folder = Path(dolphin_exe).parent
         if (folder / "portable.txt").is_file():
             return folder / "User" / "Config"
+    candidates = []
+    appdata = environ.get("APPDATA")
+    if appdata:
+        candidates.append(Path(appdata) / "Dolphin Emulator" / "Config")
     for base in (environ.get("OneDrive"), environ.get("USERPROFILE"),
                  environ.get("HOME")):
-        if not base:
-            continue
-        config = Path(base) / "Documents" / "Dolphin Emulator" / "Config"
+        if base:
+            candidates.append(
+                Path(base) / "Documents" / "Dolphin Emulator" / "Config")
+    for config in candidates:
         if config.is_dir():
             return config
     return None

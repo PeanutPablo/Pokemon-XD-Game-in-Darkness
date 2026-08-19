@@ -60,11 +60,28 @@ the first and only candidate and the player presses Enter. This is what
 **Dolphin's own opinion beats ours.** For disc images, the paths Dolphin
 is configured to scan for games come before anything found by guessing at
 Downloads or the desktop. A game the player can already see in Dolphin's
-list is a game whose file Dolphin can name. Both the portable layout
-(`portable.txt` beside the executable, config under `User\Config`) and the
-Documents layout are read, portable first — a build with `portable.txt`
-ignores the Documents copy entirely, so preferring Documents would read a
-config that Dolphin is not using.
+list is a game whose file Dolphin can name.
+
+Three config layouts are read, in order: the portable one (`portable.txt`
+beside the executable, config under `User\Config`), then
+`%APPDATA%\Dolphin Emulator\Config`, then `<Documents>\Dolphin Emulator\
+Config` in both its plain and OneDrive-redirected forms. Portable comes
+first because such a build ignores the shared locations entirely, so
+preferring a shared one would read a config Dolphin is not using.
+
+> **`%APPDATA%` was missing until 2026-08-18, and it is the common case.**
+> This was written checking only portable and Documents, and called
+> verified on a machine that is neither: no `portable.txt`, no
+> `Documents\Dolphin Emulator`. `dolphin_config_dir` returned None, so
+> this entire ranking never ran. Nothing looked wrong, because the disc
+> images happened to sit beside `Dolphin.exe` and the *next* branch down
+> found them — the pick list was correct for the wrong reason. The real
+> config was in `%APPDATA%\Dolphin Emulator\Config`, and its `ISOPath0`
+> named that same folder. Pinned by `DolphinConfigDirTests`.
+>
+> The general lesson is the one this project keeps relearning: a check
+> that passes because a *different* code path covered for it has not been
+> verified. Confirm the branch you think you are testing actually ran.
 
 Search order for Dolphin: inside the release, beside the release, registry
 install locations, the usual folders, the system PATH. For disc images: in

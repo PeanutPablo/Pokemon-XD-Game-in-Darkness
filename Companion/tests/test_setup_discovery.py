@@ -164,6 +164,22 @@ class FindDolphinTests(TempTreeTest):
             release, environ={}, roots=[self.root, dolphin_folder])
         self.assertEqual(self.paths_of(found), [exe])
 
+    def test_an_exe_installer_install_under_program_files_is_found(self):
+        """Dolphin ships both a portable archive and a Windows installer.
+
+        The installer puts it in Program Files and writes an uninstall
+        registry entry. Two independent routes find it -- this one, and
+        `_registry_dolphin_directories` -- which matters because whether
+        that installer populates `InstallLocation` has not been confirmed
+        here (the development machine's Dolphin is portable and has no
+        uninstall entry at all). This route does not depend on it."""
+        program_files = self.root / "Program Files"
+        exe = write(program_files / "Dolphin Emulator" / "Dolphin.exe")
+        found = discovery.find_dolphin(
+            self.root / "release",
+            environ={"ProgramFiles": str(program_files)})
+        self.assertEqual(self.paths_of(found), [exe])
+
     def test_nothing_installed_yields_an_empty_list_not_a_guess(self):
         found = discovery.find_dolphin(
             self.root / "release", environ={}, roots=[self.root])
@@ -269,6 +285,87 @@ class FindDiscImagesTests(TempTreeTest):
         write(self.root / "save.sav", b"\x00" * 0x500)
         found = discovery.find_disc_images(release, environ={}, roots=[self.root])
         self.assertEqual(found, [])
+
+
+class DolphinConfigDirTests(TempTreeTest):
+    """Where Dolphin's own config lives, which decides whether the
+    "Dolphin's own game list" ranking runs at all.
+
+    `%APPDATA%` was missing from this function until 2026-08-18. The
+    development machine's Dolphin has no `portable.txt` and no
+    `Documents/Dolphin Emulator`, so the lookup returned None and that
+    entire branch of `find_disc_images` never executed -- masked by the
+    images happening to sit beside `Dolphin.exe`, where a different branch
+    found them. Its real config was in `%APPDATA%/Dolphin Emulator/Config`,
+    naming that same folder as `ISOPath0`."""
+
+    def config_at(self, *parts):
+        config = self.root.joinpath(*parts)
+        config.mkdir(parents=True, exist_ok=True)
+        (config / "Dolphin.ini").write_text("[General]\n", encoding="utf-8")
+        return config
+
+    def test_appdata_is_found(self):
+        config = self.config_at("AppData", "Roaming", "Dolphin Emulator",
+                                "Config")
+        found = discovery.dolphin_config_dir(
+            None, {"APPDATA": str(self.root / "AppData" / "Roaming")})
+        self.assertEqual(found, config)
+
+    def test_documents_is_still_found_when_appdata_has_none(self):
+        config = self.config_at("Documents", "Dolphin Emulator", "Config")
+        found = discovery.dolphin_config_dir(
+            None, {"APPDATA": str(self.root / "nowhere"),
+                   "USERPROFILE": str(self.root)})
+        self.assertEqual(found, config)
+
+    def test_onedrive_redirected_documents_is_found(self):
+        config = self.config_at("OneDrive", "Documents", "Dolphin Emulator",
+                                "Config")
+        found = discovery.dolphin_config_dir(
+            None, {"OneDrive": str(self.root / "OneDrive")})
+        self.assertEqual(found, config)
+
+    def test_appdata_wins_over_documents(self):
+        appdata = self.config_at("AppData", "Roaming", "Dolphin Emulator",
+                                 "Config")
+        self.config_at("Documents", "Dolphin Emulator", "Config")
+        found = discovery.dolphin_config_dir(
+            None, {"APPDATA": str(self.root / "AppData" / "Roaming"),
+                   "USERPROFILE": str(self.root)})
+        self.assertEqual(found, appdata)
+
+    def test_a_portable_install_beats_every_shared_location(self):
+        """A build with portable.txt ignores the shared ones entirely."""
+        self.config_at("AppData", "Roaming", "Dolphin Emulator", "Config")
+        dolphin = self.root / "Dolphin-x64"
+        exe = write(dolphin / "Dolphin.exe")
+        write(dolphin / "portable.txt")
+        found = discovery.dolphin_config_dir(
+            exe, {"APPDATA": str(self.root / "AppData" / "Roaming")})
+        self.assertEqual(found, dolphin / "User" / "Config")
+
+    def test_nothing_configured_yields_none(self):
+        self.assertIsNone(discovery.dolphin_config_dir(None, {}))
+
+    def test_forward_slash_iso_paths_are_read(self):
+        """Dolphin writes ISOPath0 with forward slashes on Windows."""
+        library = self.root / "Games"
+        image = write(library / "game.iso", disc_header())
+        config = self.root / "AppData" / "Roaming" / "Dolphin Emulator" / "Config"
+        config.mkdir(parents=True)
+        (config / "Dolphin.ini").write_text(
+            "[General]\n"
+            f"ISOPath0 = {str(library).replace(chr(92), '/')}\n"
+            "ISOPaths = 1\n", encoding="utf-8")
+        release = self.root / "release"
+        release.mkdir()
+        found = discovery.find_disc_images(
+            release, dolphin_exe=None,
+            environ={"APPDATA": str(self.root / "AppData" / "Roaming")},
+            roots=[])
+        self.assertEqual(self.paths_of(found), [image])
+        self.assertEqual(found[0].source, "in Dolphin's own game list")
 
 
 class UserRootsTests(unittest.TestCase):
