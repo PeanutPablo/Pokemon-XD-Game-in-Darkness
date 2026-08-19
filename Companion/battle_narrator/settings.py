@@ -266,6 +266,29 @@ def _apply_auto_repeat_delay(controller, value):
         reader.auto_repeat_seconds = value
 
 
+def _apply_entity_location(controller, value):
+    """Push the setting into the reader, and let the reader push back.
+
+    The second half is what stops `ctrl+l` and the settings menu becoming
+    two opinions about one setting. The hotkey flips `location_enabled`
+    directly -- it has to, the menu may never have been opened -- and
+    without this callback the store would still hold the old value, save
+    it on the next unrelated change, and quietly undo the player's choice
+    at the next launch.
+
+    Wired here rather than at construction because appliers are the one
+    place that already runs every time the lifecycle builds or rebuilds a
+    reader, so a reader replaced mid-session gets the callback too."""
+    reader = getattr(controller, "entity_nav_reader", None)
+    if reader is None:
+        return
+    reader.location_enabled = value
+    store = getattr(controller, "settings", None)
+    if store is not None:
+        reader.on_location_change = lambda new_value: store.set(
+            "speech.entity_location", new_value, controller)
+
+
 def _guide_readers(controller):
     """The beacon and the routed guide, which the lifecycle holds as one
     `GuideModes` pair."""
@@ -384,6 +407,12 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
                 profile.entity_nav_auto_repeat_seconds,
                 0.5, 5.0, 0.5, unit="seconds",
                 applier=_apply_auto_repeat_delay),
+            Toggle(
+                "speech.entity_location", "Direction and distance", True,
+                applier=_apply_entity_location,
+                description="Say which way a selected thing is and how far, "
+                            "as in \"3 o'clock, distance 47\". Also on "
+                            "ctrl+L while you play."),
         )),
         Category("Navigation", (
             Number(

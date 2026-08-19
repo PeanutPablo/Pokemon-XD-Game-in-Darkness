@@ -312,6 +312,13 @@ def parser():
         default=XD_US_REV0.default_entity_repeat_hotkey,
         help="entity navigation: repeat current selection (default: ctrl+slash)",
     )
+    value.add_argument(
+        "--entity-location-hotkey",
+        type=hotkey_value,
+        default=XD_US_REV0.default_entity_location_hotkey,
+        help="entity navigation: toggle speaking the direction and distance "
+             "with each entity (default: ctrl+l)",
+    )
     # `--entity-refresh-hotkey` was removed on 2026-08-16 along with the
     # action itself; see entity_nav.EntityNavigator's docstring. Not kept as
     # an accepted no-op: unlike `--terrain-footsteps`, no launcher passes it.
@@ -396,6 +403,7 @@ def hotkey_reference(args):
         ("Next entity category", args.entity_next_category_hotkey),
         ("Previous entity category", args.entity_prev_category_hotkey),
         ("Repeat selection", args.entity_repeat_hotkey),
+        ("Direction and distance on or off", args.entity_location_hotkey),
         ("Beacon on selection", args.audio_guide_hotkey),
         ("Routed navigation guide", args.navigation_guide_hotkey),
         ("Autowalk to selection", args.autowalk_hotkey),
@@ -1367,6 +1375,9 @@ def run(argv=None, backend=dme, speech_backend=tolk):
                     args.entity_prev_category_hotkey
                 ),
                 "repeat": WindowsForegroundHotkey(args.entity_repeat_hotkey),
+                "location": WindowsForegroundHotkey(
+                    args.entity_location_hotkey
+                ),
             }
             navigator = EntityNavigator(
                 connection.memory, XD_US_REV0, sources, hotkeys, speech, logger,

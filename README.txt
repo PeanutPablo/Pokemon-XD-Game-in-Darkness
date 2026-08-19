@@ -148,6 +148,7 @@ from other programs.
   ctrl shift .      Next category
   ctrl shift ,      Previous category
   ctrl plus /       Repeat the current thing
+  ctrl plus l       Turn the direction and distance on or off
   ctrl plus g       Beacon on the selected thing
   ctrl plus n       Routed navigation guide to it
   ctrl shift /      Autowalk to the selected thing
@@ -165,6 +166,19 @@ across a conversation.
 
 Every beacon also goes quiet while the settings menu is open, so
 you can hear the Sound library one cue at a time.
+
+By default every entity is announced with its direction and how far
+away it is, as in "Rui. 3 o'clock, distance 47". If you would rather
+just hear what things are, ctrl plus l turns that off, and says
+"Location and distance off" so you know which way it went. Press it
+again to turn it back on. The setting is remembered, and it is also
+in the settings menu under Speech, as "Direction and distance".
+
+Turning it off does not stop the companion telling you what you can
+interact with. "Interaction available" and "In range but facing
+away, walk toward it" are still spoken, because those answer whether
+pressing A will do anything, which is a different question from how
+far away something is.
 
 
 -----------------------------------------------------------
