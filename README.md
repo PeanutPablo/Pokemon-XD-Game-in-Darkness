@@ -1,165 +1,167 @@
 # Pokémon XD: Game in Darkness
 
-A screen-reader companion for **Pokémon XD: Gale of Darkness** and the
-**XG: NeXt Gen** ROM hack, for blind and low-vision players. It runs
-beside Dolphin, reads the game's state, and speaks it through NVDA.
+A screen-reader companion that makes **Pokémon XD: Gale of Darkness** and
+the **XG: NeXt Gen** ROM hack playable by blind and low-vision players. It
+runs beside Dolphin, reads the game's live state out of emulated memory,
+and speaks it through NVDA.
 
-It never writes to the game, never modifies your disc image, never sends
-anything over the network, and does not patch or alter Dolphin. It only
-reads.
+It only ever reads. It does not write to the game, modify your disc image,
+alter Dolphin, or send anything over the network. Two features are the
+deliberate exception — Autowalk and Teleport move your character — and
+both are opt-in, on their own keys, documented as exceptions in the code
+that implements them.
+
+**No game data of any kind is in this repository.** The companion needs
+the game's own text, item, move and collision tables; those are
+copyrighted, so each player generates them locally from the disc image
+they already own.
+
+---
+
+## For players
+
+Download a release, extract it, run `Setup.cmd`, run
+`Launch Accessible XD.cmd`. You need Windows, NVDA, Dolphin, and your own
+copy of the game. **You do not need to install Python** — a release brings
+its own, and setup needs no internet connection.
+
+Full instructions, hotkeys and troubleshooting are in
+[README.txt](README.txt), which is also what ships inside the release. It
+is deliberately plain ASCII text with no Markdown syntax or tables, so it
+reads cleanly in Notepad and through a screen reader.
 
 ## What it reads out
 
 - **Battles** — move menus with type and PP, damage and HP as
   percentages, stat changes, status, faints, Shadow moves and Heart
-  Gauge.
+  Gauge, how many Pokémon the opponent brought, and what each target
+  actually is while you are aiming at it.
 - **The overworld** — a navigable list of nearby NPCs, items, doors,
-  warps, elevators, PCs and shops, with a steerable audio beacon, plus
-  terrain footsteps and a routed navigation guide.
+  warps, elevators, PCs and shops, with a steerable audio beacon,
+  terrain footsteps, and a routed navigation guide that refuses to
+  invent a route it cannot walk.
 - **Menus and screens** — the bag, shops, the party list and summary,
   the PC and Purify Chamber, the P✩DA, and the title screen.
 - **Dialogue** — NPC conversations, spoken per page with the speaker
   named.
+- **Its own settings** — a spoken settings menu on `F1`, including a
+  Sound library that plays every non-speech cue and says what it means.
 
-## What you need before you start
+---
 
-1. **Windows** with **NVDA** running.
-2. **Dolphin** (the GameCube emulator).
-3. **Your own copy of the game**, as a disc image — `.iso`, `.gcm`,
-   `.rvz`, `.gcz`, `.wia` or `.ciso`. This download does not include the
-   game and cannot get it for you.
+## For developers
 
-You do **not** need to install Python. This download brings its own, in
-the `Runtime` folder, and does not touch or interfere with any Python you
-may already have.
-
-## Installing
-
-1. Extract this folder anywhere you like. If you extract it **inside your
-   Dolphin folder**, or right next to it, setup will find Dolphin without
-   asking you anything at all.
-2. Run **`Setup.cmd`**.
-3. Run **`Launch Accessible XD.cmd`** to play.
-
-Setup does not ask you to type any paths. It looks for Dolphin and for
-your game image — in this folder, next to it, in the folders Dolphin is
-already configured to scan for games, and in the usual places like your
-desktop and Downloads — then reads out what it found and asks you to
-confirm. Press Enter to accept, or type a number to pick from a list. If
-it finds nothing, you can still type the full path.
-
-It then reads the game data it needs, which takes about a minute. It
-installs nothing, needs no internet connection, and everything it creates
-stays inside this folder.
-
-If you move Dolphin or your game image later, run `Setup.cmd` again.
-
-### Why setup needs your game
-
-The companion has to know the game's own text, item, move and collision
-tables to say anything useful about it. That data is copyrighted, so it
-cannot be included in this download. Setup reads it out of the copy you
-already own and stores it locally, in `Companion/_dialogue_extraction`.
-It is read-only: your disc image is never modified, and nothing about it
-leaves your computer.
-
-You can also do that step on its own:
+### Running from a checkout
 
 ```bash
-Runtime\python.exe Companion\bootstrap_game_data.py --disc "D:\path\to\your\game.iso"
+Setup.cmd
 ```
 
-## Hotkeys
+In a checkout there is no bundled `Runtime/`, so this builds
+`Companion/.venv` and needs Python 3.12 — **specifically 3.12**, because
+`dolphin-memory-engine` publishes no wheel past it. Both entry points
+prefer `Runtime/` when present and fall back to `.venv`, so a checkout and
+an extracted release both work.
 
-Hotkeys work while Dolphin has focus.
+### Running the tests
 
-The beacon and the routed guide (`ctrl+g` and `ctrl+n`) go quiet on their
-own while you are in a conversation, and pick up again when it ends. They
-are not switched off, so you keep your target and your route across a
-conversation. Every beacon also goes quiet while the settings menu is open,
-so the Sound library can be heard one cue at a time.
+`Companion/tests/` has no `__init__.py` and the tests import
+`battle_narrator.*`, so the obvious invocations collect nothing. Discover
+from the tests directory with `Companion` on `sys.path`:
 
-| Keys | What it does |
+```bash
+Companion/.venv/Scripts/python.exe -c "import sys,unittest;sys.path.insert(0,'Companion');unittest.main(module=None,argv=['x','discover','-s','Companion/tests','-t','Companion/tests'])"
+```
+
+Roughly 1,900 tests, about three minutes. Two failures in
+`test_passability.DestinationProjectionTests` are pre-existing and
+unrelated to anything outside `pathfinding.py` / `collision_probe.py`;
+treat "2 failures, both of those" as the green baseline.
+
+**Always subclass `unittest.TestCase`.** A bare `def test_*()` is not
+collected by unittest discovery, so it never runs and never fails. That is
+exactly how a PC box-grid addressing bug once survived — every box cell
+decoded the same address, with a test file that looked like coverage.
+
+### Building a release
+
+```bash
+Build Accessibility Release.cmd
+```
+
+Writes to a sibling `Accessibility Releases` folder, outside the project.
+The builder works from an allowlist (`Tools/release-manifest.txt`) and
+refuses to produce an archive unless every check passes — no forbidden
+content, beacon sounds complete, footsteps complete *and* resolvable, and
+the staged tree importable **on the staged runtime**. See
+[README-DISTRIBUTION.md](README-DISTRIBUTION.md).
+
+---
+
+## How it is put together
+
+| Concern | Where |
 |---|---|
-| `F1` | Open the settings menu |
-| `ctrl+.` / `ctrl+,` | Next / previous nearby entity |
-| `ctrl+shift+.` / `ctrl+shift+,` | Next / previous category |
-| `ctrl+/` | Repeat the current entity |
-| `ctrl+g` | Beacon on the selected entity |
-| `ctrl+n` | Routed navigation guide to it |
-| `ctrl+shift+/` | Autowalk to the selected entity |
-| `ctrl+t` | Teleport to the selected entity |
-| `ctrl+h` | Battle HP summary |
-| `ctrl+1` – `ctrl+6` | Read party slot 1–6: name, level, HP, status, Heart Gauge, held item |
-| `ctrl+s` | Heart Gauge summary |
-| `ctrl+m` | Money |
+| Live memory reading, per-build addresses | `Companion/battle_narrator/profile.py`, `memory.py` |
+| Which build is running | `battle_narrator/game_build.py` |
+| Entity navigation, routing, beacons | `entity_nav.py`, `pathfinding.py`, `npc_beacons.py` |
+| Speech | `speech.py`, `messages.py` |
+| First run and discovery | `Companion/setup_companion.py`, `setup_discovery.py` |
+| Generating game data from a disc | `Companion/bootstrap_game_data.py` |
+| Release pipeline | `Tools/` |
 
-## Settings menu
+### Documentation
 
-`F1` opens a spoken settings menu for the companion itself — beacon and
-footstep volumes, which announcements you hear, and the guide distances.
-Arrow keys move and change values, `H` and `shift+H` jump between the
-headings (Sounds, Speech, Navigation, Hotkeys, Sound library), `enter` or
-`space` flips a switch, and `escape` closes. Changes take effect
-immediately and are saved, so they are still there next time you play. The
-Hotkeys heading is a read-only list of every key above.
+The design record lives in [`Documentation/`](Documentation/) and is
+treated as part of the work, not a summary of it.
 
-The **Sound library** heading is where you can learn the companion's
-non-speech cues. Moving onto an entry tells you what that sound means —
-"Item beacon: an item is lying on the ground nearby" — and `enter` plays
-it. Every beacon, both navigation guides, the waypoint cue, a footstep and
-the blocked-movement cue are listed, each played from the same file the
-game itself uses, so what you hear here is what you will hear in play.
+- **[MASTER.md](Documentation/MASTER.md)** — start here. One entry per
+  feature: what it does for the player, which module owns it, how it is
+  verified, and what is still open.
+- **[INDEX.md](Documentation/INDEX.md)** — the full map.
+- **[XG_COMPATIBILITY.md](Documentation/XG_COMPATIBILITY.md)** — whether
+  any of this works on XG, and the **normative data-sourcing rules** that
+  came out of finding that it mostly does. Read its "Data sourcing rules"
+  section before touching any loader.
+- **[FIRST_RUN_AND_RUNTIME.md](Documentation/FIRST_RUN_AND_RUNTIME.md)** —
+  how a player gets from a zip to a running game, and the bundled Python.
+- **[ACCESSIBILITY_COVERAGE_MATRIX.md](Documentation/ACCESSIBILITY_COVERAGE_MATRIX.md)**
+  — authoritative per-screen status.
+- **[ACCESSIBILITY_BACKLOG.md](Documentation/ACCESSIBILITY_BACKLOG.md)** —
+  what is open, including diagnosed-but-unfixed findings.
 
-While the menu is open, those keys belong to the companion and are not
-passed to the game, so moving through the list does not move your character.
-`F1` is taken from Dolphin even when the menu is closed — in a stock Dolphin
-setup it loads a save state, which is not what you want when you meant to
-open settings. Nothing is taken while Dolphin is not the focused window, and
-`--no-settings-menu` turns the whole feature off if you would rather keep
-those keys.
+---
 
-Autowalk walks your character to whatever entity navigation currently has
-selected. **Any movement input stops it** — nudge the stick or the D-pad and
-you have control back immediately. It also stops on its own when you arrive,
-when you enter a new area, when a menu or conversation opens, if it stops
-making progress, or if it cannot find a walkable route in the first place.
-It never guesses: if there is no real route, it says so and does not move.
+## How things get believed here
 
-## If something goes wrong
+This project reverse-engineers a commercial game with no source. The
+standing rules exist because each was learned by shipping the mistake:
 
-- **"Battle narrator stopped after an error"** — usually missing game
-  data. Run `Setup.cmd` again.
-- **Nothing is spoken** — check NVDA is running, and that Dolphin has
-  focus. The companion starts speaking once a game is loaded.
-- **Setup could not find Dolphin or your game** — type the full path when
-  it asks. Setup only searches a few levels down from the usual places,
-  so a game image kept somewhere unusual will not be found automatically.
-- **"This folder is too deep inside your drive for Windows"** — move the
-  whole folder somewhere with a shorter path, such as `C:\Games\`, and run
-  `Setup.cmd` again. Windows will not load parts of this program from a
-  path longer than 260 characters.
-- **Setup talks about installing Python 3.12** — you are running a source
-  checkout rather than a release. A release brings its own Python and
-  never asks for one.
-- **Everything is said twice** — an older copy of the companion is
-  still running. Close it and relaunch.
+- **Derive from the image in hand; never from a constant that was true of
+  one build.** XG keeps the engine layout but not the data shapes — it
+  packs 106 abilities into the space vanilla used for 78. Four separate
+  defects were the same mistake in different structures.
+- **A disc label is neither necessary nor sufficient.** Two different
+  vanilla XD builds ship under the same `GXXE01`, and XG relabels nothing.
+  Identify builds by fingerprint, not by name.
+- **Agreement from a second code path is not verification.** A check that
+  passes because a *different* branch covered for it has not been tested.
+  Confirm the branch you think you are exercising actually ran.
+- **State what is unverified.** Documents here carry explicit
+  "not verified" sections, and features that are implemented but not
+  live-tested say so.
 
-Details of what failed go to `Companion/logs/`.
+---
 
-## Known limitations
+## Licence and credits
 
-- Only the **US** release and hacks built on it are supported. Other
-  regions are not.
-- **Gateon Port bridge connections** appear under Exits. Their names and
-  positions come from the room's collision data, and the list updates from
-  the live bridge alignment so only currently connected directions appear.
-- Categories with no sound of their own (such as healing spots) are
-  deliberately silent rather than borrowing another category's cue.
+MIT — see [LICENSE](LICENSE).
 
-## Credits and licence
+Beacon and footstep sounds are the project's own, except the "Video game
+beeps" pack by the Freesound user **Mossy4**, used under CC-BY 4.0. The
+attribution in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) is a
+licence obligation, not a courtesy.
 
-This companion is MIT-licensed — see `LICENSE`. Beacon and footstep
-sounds are the project's own, except the "Video game beeps" pack by
-Freesound user Mossy4, used under CC-BY 4.0. No game data of any kind is
-included. See `THIRD-PARTY-NOTICES.md`.
+Pokémon and Pokémon XD are trademarks of Nintendo, Creatures Inc. and
+GAME FREAK Inc. This project is not affiliated with, endorsed by, or
+connected to any of them, and distributes no game code or game data.

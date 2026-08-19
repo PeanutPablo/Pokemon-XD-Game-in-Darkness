@@ -88,9 +88,15 @@ $approvedFiles = @(
     'Companion/assets/npc_roles.json',
     'Companion/assets/interactables.json',
     'Companion/assets/room_services.json',
-    # README-DISTRIBUTION.md is deliberately NOT here: it documents how to
-    # BUILD a release, which is of no use to someone who received one.
-    'README.md',
+    # README.txt, not README.md. The recipient's guide is plain ASCII text
+    # with no Markdown syntax and no tables: it opens in Notepad on a
+    # double-click and reads cleanly through a screen reader, where `#`,
+    # backticks and pipe-delimited tables are just noise to sit through.
+    # README.md is the repository landing page -- aimed at someone
+    # browsing the code on GitHub, not at someone who already has the zip
+    # -- and is left out for the same reason as README-DISTRIBUTION.md,
+    # which documents how to BUILD a release.
+    'README.txt',
     'THIRD-PARTY-NOTICES.md',
     'LICENSE'
 )

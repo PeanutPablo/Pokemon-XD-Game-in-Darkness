@@ -10,6 +10,30 @@ never includes personal music replacements, game images, extracted game
 data, logs, research repositories, virtual environments, development
 probes, or save files.
 
+## Which README ships
+
+`README.txt`, not `README.md`.
+
+The recipient's guide is plain ASCII text: no Markdown syntax, no tables,
+numbered sections that can be reached by searching for "SECTION 4", and
+lines wrapped at 72 characters. The one line past 72 is a command, left
+unwrapped so it survives copy-and-paste.
+
+This is not a style preference. The audience uses a screen reader, and a
+`.md` file has no default handler on Windows while a `.txt` opens in
+Notepad on a double-click. Read aloud, `#`, backticks and pipe-delimited
+tables are noise to sit through rather than structure. ASCII-only also
+removes any chance of mojibake from a tool that guesses the encoding
+wrongly — which is why the file says "Pokemon" rather than "Pokémon"
+throughout.
+
+`README.md` is the repository landing page, aimed at someone browsing the
+code on GitHub, and is left out of the archive for the same reason as this
+file: it is written for a different reader. The two overlap on features
+and the install summary; the operational detail — hotkeys, the settings
+menu, troubleshooting — lives only in `README.txt`, so there is one copy
+to keep correct.
+
 ## The bundled Python runtime
 
 A release carries its own interpreter in `Runtime/`, so the recipient

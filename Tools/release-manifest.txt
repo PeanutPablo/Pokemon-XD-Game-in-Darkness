@@ -59,9 +59,13 @@ sounds/elevators.wav
 sounds/footsteps/*.wav
 sounds/_readme_and_license.txt
 
-# Documentation for the recipient. README-DISTRIBUTION.md is deliberately
-# absent: it describes how to build a release, not how to use one.
-README.md
+# Documentation for the recipient, in plain ASCII text: no Markdown
+# syntax, no tables, numbered sections it can be searched by. It opens in
+# Notepad on a double-click and reads cleanly through a screen reader.
+# README.md is the repository landing page and is deliberately absent, as
+# is README-DISTRIBUTION.md, which describes how to build a release rather
+# than how to use one.
+README.txt
 THIRD-PARTY-NOTICES.md
 LICENSE
 VERSION
