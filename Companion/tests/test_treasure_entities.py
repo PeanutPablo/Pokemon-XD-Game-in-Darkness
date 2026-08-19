@@ -272,6 +272,18 @@ class LooseItemTests(unittest.TestCase):
         live, _ = source([Record(kind=2)])
         self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
 
+    def test_a_script_hidden_live_item_is_absent(self):
+        live, _ = source(
+            [Record(kind=2)],
+            actors=[Actor(TREASURE_RESID_MARKER | 0, displayed=False)])
+        self.assertEqual(live.entities(), [])
+
+    def test_live_visibility_overrides_a_set_spawn_flag(self):
+        live, _ = source(
+            [Record(kind=2, spawn_flag=200)], flags={200: 1},
+            actors=[Actor(TREASURE_RESID_MARKER | 0, displayed=False)])
+        self.assertEqual(live.entities(), [])
+
     def test_absent_before_its_spawn_flag_is_set(self):
         live, _ = source([Record(kind=2, spawn_flag=200)], flags={200: 0})
         self.assertEqual(live.entities(), [])

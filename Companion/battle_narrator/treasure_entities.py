@@ -159,11 +159,24 @@ class TreasureState:
         return self.unresolved is None
 
     @property
+    def visible(self):
+        """Whether the live object is visible, when an actor exists.
+
+        Room scripts can hide a treasure actor directly without assigning a
+        spawn flag to its static treasure record.  In that case the live
+        display bit is the engine's authoritative state.  A missing actor is
+        not treated as hidden because records are also queried during room
+        loading, before the actor pool has been populated.
+        """
+        return self.displayed is not False
+
+    @property
     def interactable(self):
         """A collected box keeps its actor but the engine sets
         `people_work +0x10` bit 0 on it, so the game itself will not talk
         to it any more."""
-        return self.exists and self.spawned and not self.collected
+        return (self.exists and self.visible and self.spawned
+                and not self.collected)
 
     @property
     def landmark(self):
@@ -171,6 +184,8 @@ class TreasureState:
         collected loose pickup is not: `floorEventCtrlTresure` mode 0 hides
         it outright."""
         if not self.exists:
+            return False
+        if not self.visible:
             return False
         if self.record.is_box:
             return self.spawned
@@ -302,6 +317,8 @@ class LiveTreasureEntitySource:
                 verdict = f"published as {state.label!r}"
             elif not state.spawned:
                 verdict = "hidden: spawn flag clear"
+            elif not state.visible:
+                verdict = "hidden: live actor display off"
             elif state.collected:
                 verdict = "hidden: collected"
             else:
