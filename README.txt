@@ -30,7 +30,8 @@ To jump to a section, search this file for its number, such as
   SECTION 8  If something goes wrong
   SECTION 9  What it reads out
   SECTION 10 Known limitations
-  SECTION 11 Credits and licence
+  SECTION 11 A guide to the game itself
+  SECTION 12 Credits and licence
 
 
 -----------------------------------------------------------
@@ -319,7 +320,25 @@ known and written up, and it is not a missing file. See SECTION 8.
 
 
 -----------------------------------------------------------
-SECTION 11. CREDITS AND LICENCE
+SECTION 11. A GUIDE TO THE GAME ITSELF
+-----------------------------------------------------------
+
+Everything above is about this companion. If you are new to Pokemon
+XD and want help with the game -- where to go, what to do, who to
+catch -- there is a walkthrough here:
+
+  https://gamefaqs.gamespot.com/gamecube/925945-pokemon-xd-gale-of-darkness/faqs/40528
+
+It is a written guide on GameFAQs, not part of this project, and it
+was not written with screen reader users in mind. It covers the
+original Pokemon XD. Pokemon XG changes a great deal -- different
+Pokemon, different levels, different movesets -- so treat it as a
+guide to the story and the places, and expect the battles and the
+Pokemon you meet to differ.
+
+
+-----------------------------------------------------------
+SECTION 12. CREDITS AND LICENCE
 -----------------------------------------------------------
 
 This companion is MIT licensed. See the file named LICENSE.

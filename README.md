@@ -30,6 +30,13 @@ Full instructions, hotkeys and troubleshooting are in
 is deliberately plain ASCII text with no Markdown syntax or tables, so it
 reads cleanly in Notepad and through a screen reader.
 
+New to the game itself? There is a
+[walkthrough for Pokémon XD on GameFAQs](https://gamefaqs.gamespot.com/gamecube/925945-pokemon-xd-gale-of-darkness/faqs/40528).
+It is not part of this project and was not written for screen-reader
+users, and it covers the original XD — XG changes Pokémon, levels and
+movesets throughout, so it is a guide to the story and the places rather
+than to the battles.
+
 ## What it reads out
 
 - **Battles** — move menus with type and PP, damage and HP as
