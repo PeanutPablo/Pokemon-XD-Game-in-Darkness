@@ -38,7 +38,57 @@ start:
 
 ---
 
-## 2. Features
+## 2. Installing
+
+1. Download the release, extract it somewhere you can write to — `C:\Games\`
+   is ideal. Three places to avoid, all of which setup detects and explains
+   rather than failing cryptically:
+   - **Program Files** — Windows protects it and setup cannot write there.
+   - **A very deep folder** — Windows refuses to load parts of this from a
+     path over 260 characters.
+   - **Documents, Desktop, Pictures, Videos, Music or Favourites** — see
+     below.
+2. Run **`Setup.cmd`**. It finds Dolphin and your game image by itself and
+   asks you to confirm — press Enter, or pick a number from a list. No
+   typing paths. It then reads the data it needs from your game image,
+   which takes about a minute.
+3. Run **`Launch Accessible XD.cmd`** to play.
+
+If you use portable Dolphin, extracting this **inside or beside your
+Dolphin folder** means setup finds it immediately.
+
+### If you put it in Documents or on the Desktop
+
+**Controlled Folder Access** — part of Windows Security, on by default —
+stops programs Windows doesn't recognise from writing to Documents,
+Desktop, Pictures, Videos, Music and Favourites. This download brings its
+own copy of Python, freshly unpacked at a path that has never existed
+before, so Windows treats it as unrecognised and blocks it.
+
+You'd otherwise see a confusing `FileNotFoundError` mentioning
+`__pycache__`, which looks like a corrupt download and isn't. Setup now
+checks for this first and explains it. Either:
+
+1. **Move the folder** somewhere like `C:\Games\` and run `Setup.cmd`
+   again — easiest, and what I'd suggest, or
+2. **Allow it through:** Windows Security → Virus & threat protection →
+   Ransomware protection → Allow an app through Controlled folder access →
+   add `Runtime\python.exe` from this folder.
+
+### What you need to supply
+
+**Your own copy of the game.** It is not included and cannot be downloaded
+for you. The companion needs the game's own text, item, move and collision
+tables to say anything useful, and those are copyrighted — so setup
+generates them locally from your copy instead. Your disc image is only ever
+read, never modified, and nothing about it leaves your computer.
+
+For **XG** specifically you need the XG patch applied to a clean XD image.
+That step is not yet handled by this installer.
+
+---
+
+## 3. Features
 
 ### In battle
 
@@ -97,7 +147,7 @@ start:
 
 ---
 
-## 3. Controls
+## 4. Controls
 
 Hotkeys work while Dolphin is the focused window. Nothing is taken from
 other programs.
@@ -128,7 +178,7 @@ your route across dialogue.
 
 ---
 
-## 4. This game does not hold your hand — read this before you start
+## 5. This game does not hold your hand — read this before you start
 
 **A walkthrough for Pokémon XD:**
 https://gamefaqs.gamespot.com/gamecube/925945-pokemon-xd-gale-of-darkness/faqs/40528
@@ -163,7 +213,7 @@ and expect the battles and the Pokémon you meet to differ.
 
 ---
 
-## 5. Known issues
+## 6. Known issues
 
 Stated plainly, because finding out mid-dungeon is worse.
 
@@ -191,55 +241,7 @@ Stated plainly, because finding out mid-dungeon is worse.
 
 ---
 
-## 6. Anything else worth knowing
-
-### Installing
-
-1. Download the release, extract it somewhere you can write to — `C:\Games\`
-   is ideal. Three places to avoid, all of which setup detects and explains
-   rather than failing cryptically:
-   - **Program Files** — Windows protects it and setup cannot write there.
-   - **A very deep folder** — Windows refuses to load parts of this from a
-     path over 260 characters.
-   - **Documents, Desktop, Pictures, Videos, Music or Favourites** — see
-     below.
-2. Run **`Setup.cmd`**. It finds Dolphin and your game image by itself and
-   asks you to confirm — press Enter, or pick a number from a list. No
-   typing paths. It then reads the data it needs from your game image,
-   which takes about a minute.
-3. Run **`Launch Accessible XD.cmd`** to play.
-
-If you use portable Dolphin, extracting this **inside or beside your
-Dolphin folder** means setup finds it immediately.
-
-### If you put it in Documents or on the Desktop
-
-**Controlled Folder Access** — part of Windows Security, on by default —
-stops programs Windows doesn't recognise from writing to Documents,
-Desktop, Pictures, Videos, Music and Favourites. This download brings its
-own copy of Python, freshly unpacked at a path that has never existed
-before, so Windows treats it as unrecognised and blocks it.
-
-You'd otherwise see a confusing `FileNotFoundError` mentioning
-`__pycache__`, which looks like a corrupt download and isn't. Setup now
-checks for this first and explains it. Either:
-
-1. **Move the folder** somewhere like `C:\Games\` and run `Setup.cmd`
-   again — easiest, and what I'd suggest, or
-2. **Allow it through:** Windows Security → Virus & threat protection →
-   Ransomware protection → Allow an app through Controlled folder access →
-   add `Runtime\python.exe` from this folder.
-
-### What you need to supply
-
-**Your own copy of the game.** It is not included and cannot be downloaded
-for you. The companion needs the game's own text, item, move and collision
-tables to say anything useful, and those are copyrighted — so setup
-generates them locally from your copy instead. Your disc image is only ever
-read, never modified, and nothing about it leaves your computer.
-
-For **XG** specifically you need the XG patch applied to a clean XD image.
-That step is not yet handled by this installer.
+## 7. Anything else worth knowing
 
 ### Privacy and safety
 
