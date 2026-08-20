@@ -13,6 +13,28 @@ from .phase1b_tasks import GSmsgUnavailable, MalformedGSmsg
 from .speech import SpeechEventClass
 
 
+EXIT_AFTER_ABSENT_SECONDS = 60.0
+"""Stop the companion when Dolphin has been gone this long.
+
+Without it the companion outlives the game forever. It sits in
+DOLPHIN_ABSENT retrying attachment, holding its log file open, and
+speaking nothing -- so a player who has finished a session has a process
+they cannot see and were never told about. It also blocks anything that
+wants to replace the folder, which is how this was noticed: a release
+build could not clear its own staging directory because a companion from
+a previous test was still running inside it.
+
+Sixty seconds, not zero. Dolphin is legitimately absent for a few seconds
+during a reattach, and someone may close it to change a setting and
+reopen it. Startup is already covered separately -- `wait_for_booted_game`
+gives Dolphin 120 seconds to appear before the lifecycle loop even
+begins -- so this only ever measures Dolphin going away after it was
+there.
+
+Set to 0 or less to disable and keep the old behaviour of waiting
+forever."""
+
+
 class LifecycleState(Enum):
     DOLPHIN_ABSENT = auto()
     ATTACHING = auto()
@@ -33,6 +55,8 @@ class LifecycleController:
         logger,
         waiting_interval=0.5,
         active_interval=0.05,
+        exit_after_absent_seconds=EXIT_AFTER_ABSENT_SECONDS,
+        clock=time.monotonic,
         menu_factory=None,
         speech=None,
         health_factory=None,
@@ -79,6 +103,13 @@ class LifecycleController:
         self.logger = logger
         self.waiting_interval = waiting_interval
         self.active_interval = active_interval
+        self.exit_after_absent_seconds = exit_after_absent_seconds
+        self.clock = clock
+        self._absent_since = None
+        """When Dolphin was first found missing in the current run of
+        absence, or None while it is present. Reset on every successful
+        attach, so a Dolphin that comes back resets the clock rather than
+        accumulating toward a shutdown across unrelated blips."""
         self.menu_factory = menu_factory
         self.speech = speech
         self.health_factory = health_factory
@@ -192,6 +223,34 @@ class LifecycleController:
                 reason,
             )
             self.state = new_state
+
+    def _absence_expired(self):
+        """Shut down if Dolphin has been gone longer than the grace period.
+
+        Returns True when it has decided to stop, so the caller abandons
+        the tick rather than attempting another attachment on the way out.
+
+        The player is told before it happens. A companion that vanishes in
+        silence is indistinguishable from one that crashed, and the whole
+        point of stopping is that they have finished playing -- they should
+        hear that it noticed, not wonder later whether it is still there."""
+        if not self.exit_after_absent_seconds or self.exit_after_absent_seconds <= 0:
+            return False
+        now = self.clock()
+        if self._absent_since is None:
+            self._absent_since = now
+            return False
+        if now - self._absent_since < self.exit_after_absent_seconds:
+            return False
+        self.emit(
+            SpeechEventClass.LIFECYCLE,
+            "Dolphin has closed. Stopping the companion.")
+        self.logger.info(
+            "LIFECYCLE stopping: Dolphin absent for %.0fs",
+            now - self._absent_since)
+        self.stop_requested = True
+        self.transition(LifecycleState.SHUTDOWN, "Dolphin closed")
+        return True
 
     def emit(self, event_class, text, deduplicate=False):
         if self.speech is not None:
@@ -720,6 +779,8 @@ class LifecycleController:
             LifecycleState.DOLPHIN_ABSENT,
             LifecycleState.DISCONNECTED,
         }:
+            if self._absence_expired():
+                return
             self.transition(
                 LifecycleState.ATTACHING, "attempting attachment"
             )
@@ -729,7 +790,9 @@ class LifecycleController:
                 self.connection.hook()
             except ConnectionError as exc:
                 self.transition(LifecycleState.DOLPHIN_ABSENT, str(exc))
+                self._absence_expired()
                 return
+            self._absent_since = None
             self.transition(
                 LifecycleState.PROFILE_PENDING,
                 "Dolphin memory attached",

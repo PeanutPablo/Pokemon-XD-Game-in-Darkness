@@ -279,12 +279,20 @@ class ConnectionTests(unittest.TestCase):
             self.assertEqual(len(expected) % 4, 0, name)
 
 
-class LifecycleTests(unittest.TestCase):
+class ControllerHarness:
+    """Builds a controller for the tests below.
+
+    A plain mixin, not a TestCase: subclassing a TestCase to reuse its
+    helper re-runs every one of its test methods under the subclass's
+    name too."""
+
     def controller(
         self,
         connection,
         task_objects,
         narrator_objects=None,
+        exit_after_absent_seconds=None,
+        clock=None,
     ):
         speaker = FakeSpeaker()
         tasks = list(task_objects)
@@ -304,9 +312,14 @@ class LifecycleTests(unittest.TestCase):
             test_logger(),
             waiting_interval=0,
             active_interval=0,
+            **({} if exit_after_absent_seconds is None
+               else {"exit_after_absent_seconds": exit_after_absent_seconds}),
+            **({} if clock is None else {"clock": clock}),
         )
         return controller, speaker
 
+
+class LifecycleTests(ControllerHarness, unittest.TestCase):
     def test_absent_at_start_then_appears(self):
         connection = FakeConnection(present=False)
         controller, speaker = self.controller(
@@ -576,3 +589,91 @@ class OptionalReaderFailureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def advance(self, dt):
+        self.t += dt
+
+    def __call__(self):
+        return self.t
+
+
+class DolphinAbsenceShutdownTests(ControllerHarness, unittest.TestCase):
+    """Stop once Dolphin has been gone a while.
+
+    Without this the companion outlives the game forever: it retries
+    attachment in silence, holds its log file open, and leaves the player
+    with a process they cannot see and were never told about. It is also
+    how this was noticed -- a release build could not clear its own staging
+    folder because a companion from an earlier test was still running
+    inside it."""
+
+    def test_it_stops_after_the_grace_period(self):
+        clock = FakeClock()
+        connection = FakeConnection(present=False)
+        controller, speaker = self.controller(
+            connection, [FakeTasks(["valid"])],
+            exit_after_absent_seconds=60.0, clock=clock)
+        controller.step()
+        self.assertEqual(controller.state, LifecycleState.DOLPHIN_ABSENT)
+        clock.advance(61.0)
+        controller.step()
+        self.assertEqual(controller.state, LifecycleState.SHUTDOWN)
+        self.assertTrue(controller.stop_requested)
+
+    def test_the_player_is_told_before_it_goes(self):
+        """A companion that vanishes silently is indistinguishable from one
+        that crashed."""
+        clock = FakeClock()
+        controller, speaker = self.controller(
+            FakeConnection(present=False), [FakeTasks(["valid"])],
+            exit_after_absent_seconds=60.0, clock=clock)
+        controller.step()
+        clock.advance(61.0)
+        controller.step()
+        self.assertIn("Dolphin has closed. Stopping the companion.",
+                      speaker.spoken)
+
+    def test_a_brief_absence_does_not_stop_it(self):
+        """Dolphin is legitimately gone for a moment during a reattach."""
+        clock = FakeClock()
+        controller, _ = self.controller(
+            FakeConnection(present=False), [FakeTasks(["valid"])],
+            exit_after_absent_seconds=60.0, clock=clock)
+        controller.step()
+        clock.advance(5.0)
+        controller.step()
+        self.assertEqual(controller.state, LifecycleState.DOLPHIN_ABSENT)
+
+    def test_dolphin_coming_back_resets_the_clock(self):
+        """Blips must not accumulate toward a shutdown across a session
+        that is working fine."""
+        clock = FakeClock()
+        connection = FakeConnection(present=False)
+        controller, _ = self.controller(
+            connection, [FakeTasks(["valid"])],
+            exit_after_absent_seconds=60.0, clock=clock)
+        controller.step()
+        clock.advance(59.0)
+        connection.present = True
+        controller.step()
+        self.assertEqual(controller.state, LifecycleState.ACTIVE)
+        connection.present = False
+        connection.readable = False
+        clock.advance(2.0)
+        controller.step()
+        self.assertNotEqual(controller.state, LifecycleState.SHUTDOWN)
+
+    def test_zero_keeps_waiting_forever(self):
+        clock = FakeClock()
+        controller, _ = self.controller(
+            FakeConnection(present=False), [FakeTasks(["valid"])],
+            exit_after_absent_seconds=0, clock=clock)
+        controller.step()
+        clock.advance(10_000.0)
+        controller.step()
+        self.assertEqual(controller.state, LifecycleState.DOLPHIN_ABSENT)

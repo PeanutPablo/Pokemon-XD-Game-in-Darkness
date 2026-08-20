@@ -148,6 +148,12 @@ is already being read by the time the game boots.
 Only run one copy at a time. If everything is spoken twice, an
 older copy is still running. Close it and start again.
 
+When you close Dolphin, the companion stops on its own. It waits a
+minute first, in case you are only restarting Dolphin, then says
+"Dolphin has closed. Stopping the companion." and exits. You are
+not left with something running in the background that you cannot
+see.
+
 
 -----------------------------------------------------------
 SECTION 5. HOTKEYS

@@ -54,6 +54,11 @@ start:
    which takes about a minute.
 3. Run **`Launch Accessible XD.cmd`** to play.
 
+**Closing Dolphin stops the companion.** Once Dolphin has been gone for a
+minute it says "Dolphin has closed. Stopping the companion." and exits, so
+you are not left with an invisible process still running. Restarting
+Dolphin within that minute keeps the session going.
+
 If you use portable Dolphin, extracting this **inside or beside your
 Dolphin folder** means setup finds it immediately.
 
