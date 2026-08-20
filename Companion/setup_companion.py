@@ -162,6 +162,74 @@ def check_path_length():
         f"and run Setup.cmd again.")
 
 
+PROTECTED_FOLDER_NAMES = ("documents", "desktop", "pictures", "videos",
+                          "music", "favorites")
+"""The folders Windows protects by default under Controlled Folder Access.
+
+Named only to word the error well. The check below is a real write, not a
+guess from the path -- a player may have added folders of their own, or
+removed the defaults."""
+
+
+def check_writable():
+    """Refuse before doing work if this folder cannot actually be written.
+
+    Controlled Folder Access is on by default in Windows Security and
+    blocks unrecognised programs from writing under Documents, Desktop,
+    Pictures, Videos, Music and Favourites. A release extracted to one of
+    those brings its own `Runtime\\python.exe`, freshly unpacked at a path
+    that has never existed before, which is unrecognised by definition.
+
+    What the player would otherwise see is not a permission message. The
+    write is refused in a way Python reports as
+    `FileNotFoundError: No such file or directory`, naming a `__pycache__`
+    path -- which reads as a corrupt download rather than a security
+    setting, and sends them off reinstalling things that were never
+    wrong. It cost a release build here before it was understood.
+
+    Checked by writing a real file, because the setting is per-machine and
+    per-folder and a player may have changed either."""
+    probe = COMPANION / "_write_test.tmp"
+    try:
+        probe.write_bytes(b"x")
+        probe.unlink()
+        return
+    except OSError as problem:
+        pass
+
+    location = ""
+    for part in RELEASE.parts:
+        if part.casefold() in PROTECTED_FOLDER_NAMES:
+            location = (
+                f"\n\nThis folder is inside your {part} folder, which "
+                f"Windows protects by default.")
+            break
+    raise SystemExit(
+        f"This folder cannot be written to, so setup cannot continue.\n"
+        f"\n"
+        f"  {RELEASE}\n"
+        f"\n"
+        f"  ({problem}){location}\n"
+        f"\n"
+        f"The usual cause is Controlled Folder Access in Windows Security, "
+        f"which blocks programs it does not recognise from writing to "
+        f"Documents, Desktop, Pictures, Videos, Music and Favourites. This "
+        f"download brings its own copy of Python, and Windows has never "
+        f"seen it before, so it is treated as unrecognised.\n"
+        f"\n"
+        f"Two ways to fix it, easiest first:\n"
+        f"\n"
+        f"  1. Move this whole folder somewhere outside those folders, "
+        f"such as C:\\Games\\, and run Setup.cmd again.\n"
+        f"\n"
+        f"  2. Or allow it through: Windows Security, Virus & threat "
+        f"protection, Ransomware protection, Allow an app through "
+        f"Controlled folder access, and add:\n"
+        f"     {RUNTIME / 'python.exe'}\n"
+        f"\n"
+        f"Nothing is wrong with the download.")
+
+
 def runtime_python(name="python.exe"):
     """The bundled interpreter in a release, or None in a checkout."""
     candidate = RUNTIME / name
@@ -366,6 +434,7 @@ def main():
     print("neither is uploaded anywhere. Type q at any prompt to stop.")
 
     check_path_length()
+    check_writable()
 
     bundled = runtime_python() is not None
     total = 2 if bundled else 3

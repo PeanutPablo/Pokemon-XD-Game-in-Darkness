@@ -69,6 +69,19 @@ Step 1. Extract this folder somewhere you can write to, such as
         Do not extract it into Program Files. Windows protects that
         folder and setup will not be able to write there.
 
+        Avoid Documents, Desktop, Pictures, Videos, Music and
+        Favourites too. Windows Security has a feature called
+        Controlled Folder Access, switched on by default, which
+        stops programs it does not recognise from writing to those
+        folders. This download brings its own copy of Python,
+        unpacked fresh where Windows has never seen it, so it counts
+        as unrecognised and gets blocked. Setup checks for this and
+        explains it rather than failing strangely. If it happens,
+        either move this folder somewhere like C:\Games\ and run
+        Setup.cmd again, or allow it through in Windows Security,
+        under Virus and threat protection, Ransomware protection,
+        Allow an app through Controlled folder access.
+
         Keep the path reasonably short. Windows refuses to load
         parts of this program from a path longer than 260
         characters, so a folder buried very deep will not work.
@@ -304,36 +317,76 @@ Dialogue
 SECTION 10. KNOWN LIMITATIONS
 -----------------------------------------------------------
 
-Only the US release, and hacks built on it, are supported. Other
-regions are not.
+Stated plainly, because finding out mid-dungeon is worse.
 
-Gateon Port bridge connections appear under Exits. Their names and
-positions come from the room's own collision data, and the list
-updates from the live bridge alignment, so only directions you can
-currently cross are listed.
+The navigation guide sometimes says it cannot reach an exit that it
+should be able to reach. Confirmed and being worked on. It affects
+elevators and warps most. It does not refuse outright, it walks you
+as close as it can while saying it cannot arrive. Most common in
+multi-level interiors.
 
-Categories with no sound of their own, such as healing spots, are
-deliberately silent rather than borrowing another category's cue.
+Teleport can report success without moving you. It now tells you
+when that happens, saying "Teleport did not take", which it did not
+used to. Two underlying causes are known and not yet fixed: landing
+inside a solid object, and landing at the wrong height when the
+target is on another floor.
 
-Footsteps can go quiet while beacons keep working. The cause is
-known and written up, and it is not a missing file. See SECTION 8.
+Footsteps can go quiet while beacons keep working. Known and being
+worked on. It is not a missing file and not something you did.
+
+Only the US release of Pokemon XD, and hacks built on it, are
+supported. Other regions are not.
+
+Gateon Port bridge connections appear under Exits. The list updates
+from the live bridge alignment, so only directions you can currently
+cross are listed.
+
+Some categories are deliberately silent. Healing spots, for example,
+have no beacon sound of their own rather than borrowing another
+category's cue.
+
+This has been tested by one person on one machine. Setup is verified
+from a clean extraction, but the live gameplay path from a packaged
+release has had far less use than the developer's own copy. Expect
+rough edges, and please report them.
 
 
 -----------------------------------------------------------
 SECTION 11. A GUIDE TO THE GAME ITSELF
 -----------------------------------------------------------
 
-Everything above is about this companion. If you are new to Pokemon
-XD and want help with the game -- where to go, what to do, who to
-catch -- there is a walkthrough here:
+Please treat this section as part of the setup, not an optional
+extra.
+
+Pokemon XD expects you to be LOOKING at it. It rarely tells you
+where to go next. It assumes you noticed the door in the corner,
+that you remember which building the man mentioned two towns ago,
+and that you can see the one interactable thing in a room full of
+scenery. None of that is something a screen reader can restore,
+because the game never said it out loud to anyone. It drew it.
+
+So pay attention to what people tell you, and keep track of where
+you have been. This companion can tell you what is around you right
+now. It cannot tell you that the plot wants you in Pyrite Town.
+
+Dungeons are the hardest part, and the honest state of it is that
+they are still being worked on. Large multi-level interiors, the
+Cipher labs especially, are where this companion is weakest. The
+routed guide can refuse to reach an exit it should be able to reach,
+and getting between floors is the least solved thing here. That is a
+known problem being actively worked on, not something you are doing
+wrong.
+
+If you get stuck in a dungeon, use the walkthrough. That is what it
+is for, and using it is not cheating. It is compensating for
+information the game only ever presented visually.
 
   https://gamefaqs.gamespot.com/gamecube/925945-pokemon-xd-gale-of-darkness/faqs/40528
 
 It is a written guide on GameFAQs, not part of this project, and it
 was not written with screen reader users in mind. It covers the
-original Pokemon XD. Pokemon XG changes a great deal -- different
-Pokemon, different levels, different movesets -- so treat it as a
-guide to the story and the places, and expect the battles and the
+original Pokemon XD. Pokemon XG changes a great deal, so treat it as
+a guide to the story and the places, and expect the battles and the
 Pokemon you meet to differ.
 
 

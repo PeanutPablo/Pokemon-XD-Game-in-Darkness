@@ -7,13 +7,30 @@ param(
     # give anyone, because Setup would then fall back to hunting for a
     # Python on the recipient's machine, which is the whole problem the
     # bundled runtime exists to remove.
-    [switch]$NoRuntime
+    [switch]$NoRuntime,
+
+    # Where to build. Defaults to the sibling 'Accessibility Releases'
+    # folder, which is the right place until Windows disagrees.
+    #
+    # Controlled Folder Access, on by default in Windows Security, blocks
+    # unrecognised executables from writing under Documents, Desktop,
+    # Pictures, Videos, Music and Favourites. The bundled runtime is a
+    # freshly extracted python.exe at a path that has never existed before,
+    # so it is unrecognised by definition -- and it has to write .pyc files
+    # into the staged tree for the import check. Under Documents that write
+    # is refused, and Python reports it as FileNotFoundError on a
+    # __pycache__ path, which looks like anything except a security policy.
+    # Confirmed in the Defender log (event 1123) naming the staged
+    # python.exe as the blocked process.
+    #
+    # Pass something outside the protected set -- C:\Builds, for instance.
+    [string]$OutputRoot
 )
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $workspace = Split-Path -Parent $project
-$releaseRoot = Join-Path $workspace 'Accessibility Releases'
+$releaseRoot = if ($OutputRoot) { $OutputRoot } else { Join-Path $workspace 'Accessibility Releases' }
 # Outside the project, beside the releases: a ~10 MB download that would
 # otherwise be re-fetched on every build, and that must never be committed.
 $runtimeCache = Join-Path $workspace 'RuntimeCache'
