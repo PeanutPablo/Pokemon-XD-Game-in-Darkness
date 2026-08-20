@@ -1326,6 +1326,10 @@ def run(argv=None, backend=dme, speech_backend=tolk):
                         runtime=PeopleRuntimeSource(
                             connection.memory, XD_US_REV0),
                         logger=logger,
+                        # Names key items lying on the floor, and only
+                        # those. Reuses the resolver the bag already builds
+                        # rather than opening the item tables a second time.
+                        key_item_name=item_name_resolver.resolve_key_item_name,
                         on_loose_appeared=lambda state: speech.emit(
                             SpeechEventClass.WARNING,
                             f"{state.label} dropped on the floor.",

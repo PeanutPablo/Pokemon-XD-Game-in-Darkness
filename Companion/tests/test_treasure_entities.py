@@ -126,10 +126,21 @@ class Runtime:
         return None
 
 
-def source(records, flags=None, actors=(), room=ROOM):
+KEY_ITEM_IDS = {0x1FA: "ID Card", 0x160: "Elevator Key"}
+
+
+def fake_key_item_name(item_id):
+    """Stands in for `ItemNameResolver.resolve_key_item_name`: a name for a
+    KEY item, None for anything else. The real one reads the kind byte out
+    of the game's item table; what matters here is only the None."""
+    return KEY_ITEM_IDS.get(item_id)
+
+
+def source(records, flags=None, actors=(), room=ROOM, key_item_name=None):
     memory, backend = build(records, room=room)
     live = LiveTreasureEntitySource(
-        memory, XD_US_REV0, Flags(flags), runtime=Runtime(actors))
+        memory, XD_US_REV0, Flags(flags), runtime=Runtime(actors),
+        key_item_name=key_item_name)
     live.pose_source = FakePose()
     return live, backend
 
@@ -272,11 +283,49 @@ class LooseItemTests(unittest.TestCase):
         live, _ = source([Record(kind=2)])
         self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
 
-    def test_only_the_known_story_pickup_is_labelled_id_card(self):
-        id_card, _ = source([Record(kind=2, item_id=0x1FA)])
-        nearby_item, _ = source([Record(kind=2, item_id=0x1F9)])
-        self.assertEqual(id_card.entities()[0].label, "ID Card")
-        self.assertEqual(nearby_item.entities()[0].label, LOOSE_LABEL)
+    def test_a_key_item_on_the_floor_is_named(self):
+        """The barrier this exists for: the project owner was stuck in the
+        Cipher lab, where progress depends on finding a keycard on the
+        floor, and every ground pickup announced as "Item"."""
+        live, _ = source([Record(kind=2, item_id=0x1FA)],
+                         key_item_name=fake_key_item_name)
+        self.assertEqual(live.entities()[0].label, "ID Card")
+
+    def test_an_ordinary_item_on_the_floor_is_still_generic(self):
+        """The policy holds for everything that is not a gate: the game
+        does not say what a sparkle holds until it is taken."""
+        live, _ = source([Record(kind=2, item_id=0x1F9)],
+                         key_item_name=fake_key_item_name)
+        self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
+
+    def test_every_key_item_is_covered_not_just_one(self):
+        """Replaced a `{0x1FA: "ID Card"}` table on 2026-08-19. An id list
+        solved one dungeon; the kind byte behind it solves all of them."""
+        live, _ = source([Record(kind=2, item_id=0x160)],
+                         key_item_name=fake_key_item_name)
+        self.assertEqual(live.entities()[0].label, "Elevator Key")
+
+    def test_a_box_holding_a_key_item_keeps_its_contents_hidden(self):
+        """Deliberate asymmetry. A box is a container the player can see is
+        a container; a floor sparkle in a dungeon is a thing they can walk
+        past without ever knowing it mattered."""
+        live, _ = source([Record(kind=KIND_BOX, item_id=0x1FA)],
+                         key_item_name=fake_key_item_name)
+        self.assertEqual(live.entities()[0].label, BOX_LABEL)
+
+    def test_without_a_resolver_pickups_read_as_they_always_did(self):
+        live, _ = source([Record(kind=2, item_id=0x1FA)])
+        self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
+
+    def test_a_failing_resolver_costs_the_name_not_the_pickup(self):
+        """The item tables are generated per machine from the player's own
+        disc. A half-generated tree must not take out the item category."""
+        def broken(item_id):
+            raise RuntimeError("item tables unreadable")
+
+        live, _ = source([Record(kind=2, item_id=0x1FA)],
+                         key_item_name=broken)
+        self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
 
     def test_visible_loose_item_at_start_is_a_silent_baseline(self):
         appeared = []
@@ -296,6 +345,7 @@ class LooseItemTests(unittest.TestCase):
         runtime = Runtime()
         live = LiveTreasureEntitySource(
             memory, XD_US_REV0, Flags(), runtime=runtime,
+            key_item_name=fake_key_item_name,
             on_loose_appeared=appeared.append)
         live.pose_source = FakePose()
         live.entities()
@@ -310,6 +360,7 @@ class LooseItemTests(unittest.TestCase):
         runtime = Runtime([actor])
         live = LiveTreasureEntitySource(
             memory, XD_US_REV0, Flags(), runtime=runtime,
+            key_item_name=fake_key_item_name,
             on_loose_appeared=appeared.append)
         live.pose_source = FakePose()
         self.assertEqual(live.entities(), [])

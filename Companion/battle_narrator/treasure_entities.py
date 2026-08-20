@@ -97,15 +97,18 @@ TREASURE_ORDINAL_MASK = 0x1FF
 BOX_LABEL = "Item box"
 OPENED_BOX_LABEL = "Opened item box"
 LOOSE_LABEL = "Item"
-SPECIAL_LOOSE_LABELS = {
-    0x1FA: "ID Card",
-}
 """Accessibility-owned object-class labels, which the audit brief permits.
 Deliberately NOT the resolved item name: the game does not reveal what a
 box or a ground sparkle contains until it is taken, so naming it would be
 inventing information the player could not otherwise have -- and would
 spoil it. The item id is read and carried in metadata for diagnostics and
-for any later feature that has a reason to use it."""
+for any later feature that has a reason to use it.
+
+**Key items are the one exception**, and only for loose pickups on the
+floor -- never for boxes, whose contents stay hidden. See
+`TreasureState.key_item_name`. It replaced a `{0x1FA: "ID Card"}` table
+on 2026-08-19: the id list solved one dungeon, and the kind byte behind it
+solves all of them."""
 
 
 @dataclass(frozen=True)
@@ -156,6 +159,18 @@ class TreasureState:
     unresolved: object = None
     """Set when a flag could not be read. An unresolved pickup is published
     nowhere -- see the class docstring in ENTITY_STATE_AND_BEACON_POLICY.md."""
+    key_item_name: object = None
+    """This pickup's own name when it is a KEY item, else None.
+
+    Resolved by the source from the game's item table -- the kind byte at
+    an item record's +0x0, which `item_database.BAG_SLOT_KEY_ITEMS` names
+    -- and passed in rather than looked up here, so this module keeps no
+    opinion about how items are stored.
+
+    None for boxes even when they hold a key item. A box's contents are
+    exactly the information the labelling policy exists to withhold, and
+    unlike a floor sparkle in a dungeon it is not a thing a player can walk
+    past without realising it mattered."""
 
     @property
     def exists(self):
@@ -203,8 +218,7 @@ class TreasureState:
     @property
     def label(self):
         if not self.record.is_box:
-            return SPECIAL_LOOSE_LABELS.get(
-                self.record.item_id, LOOSE_LABEL)
+            return self.key_item_name or LOOSE_LABEL
         return OPENED_BOX_LABEL if self.collected else BOX_LABEL
 
 
@@ -266,12 +280,17 @@ class LiveTreasureEntitySource:
     reload."""
 
     def __init__(self, memory, profile, flag_reader=None, runtime=None,
-                 logger=None, on_loose_appeared=None):
+                 logger=None, on_loose_appeared=None, key_item_name=None):
         self.memory, self.profile = memory, profile
         self.flag_reader = flag_reader
         self.runtime = runtime
         self.logger = logger
         self.on_loose_appeared = on_loose_appeared
+        self.key_item_name = key_item_name
+        """`item_id -> name or None`, normally
+        `ItemNameResolver.resolve_key_item_name`. Absent in tests and in
+        any build without the item tables; pickups then fall back to the
+        generic label, which is what they said before this existed."""
         self.pose_source = NPCMemorySource(memory, profile)
         self._room_id = None
         self._records = ()
@@ -279,6 +298,27 @@ class LiveTreasureEntitySource:
         self._loose_visibility = {}
         self._notification_room = None
         self._notification_primed = False
+
+    def _key_item_name(self, record):
+        """The name to speak for a key item on the floor, or None.
+
+        Boxes are excluded before the lookup, not after: their contents are
+        the thing the labelling policy withholds.
+
+        A failing resolver costs the name, not the pickup. The item tables
+        are generated per machine from the player's own disc, so a
+        half-generated or mismatched tree must degrade to "Item" rather
+        than take out the whole item category."""
+        if record.is_box or self.key_item_name is None:
+            return None
+        try:
+            return self.key_item_name(record.item_id)
+        except Exception as problem:
+            if self.logger is not None:
+                self.logger.debug(
+                    "TREASURE key-item name unavailable for 0x%X: %s",
+                    record.item_id, problem)
+            return None
 
     def _notify_loose_appearances(self, states, room_id):
         """Report live loose pickups only on a false-to-true transition.
@@ -419,6 +459,7 @@ class LiveTreasureEntitySource:
                 # not a default chosen here.
                 collected=bool(collected) if record.collected_flag else False,
                 spawned=bool(spawned) if record.spawn_flag else True,
+                key_item_name=self._key_item_name(record),
                 actor=actor,
                 displayed=None if actor is None else actor.displayed,
                 position=(

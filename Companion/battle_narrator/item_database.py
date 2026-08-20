@@ -181,6 +181,31 @@ class ItemNameResolver:
             return None
         return self.name_table.resolve(record.name_message_id)
 
+    def resolve_key_item_name(self, item_id):
+        """The item's own name if it is a KEY item, else None.
+
+        Lives here because `BAG_SLOT_KEY_ITEMS` does, and because the
+        caller -- `treasure_entities`, naming pickups lying on the floor --
+        has no business knowing how an item's kind is stored.
+
+        It exists for one specific accessibility barrier. Pickups are
+        deliberately labelled by object class and never by contents, since
+        the game does not reveal what a sparkle holds until it is taken, so
+        naming one would invent information the player could not otherwise
+        have. That is right for an ordinary pickup and wrong for a
+        progression gate: the project owner was stuck in the Cipher lab,
+        where progress depends on finding a keycard on the floor, and every
+        ground pickup announced as "Item".
+
+        Keyed on the kind byte rather than on a list of item ids. An id
+        list would need an entry per dungeon and would go stale the moment
+        a hack renumbered anything; the kind comes out of the image in
+        hand. 54 items carry it in the XG build this was checked against."""
+        record = self.item_database.lookup(item_id)
+        if record is None or record.kind != BAG_SLOT_KEY_ITEMS:
+            return None
+        return self.name_table.resolve(record.name_message_id)
+
 
 class ItemDescriptionTable:
     """Item description text -- a completely separate local message

@@ -2,6 +2,11 @@ import struct
 import unittest
 
 from battle_narrator.item_database import (
+    BAG_SLOT_BERRIES,
+    BAG_SLOT_ITEMS,
+    BAG_SLOT_KEY_ITEMS,
+    BAG_SLOT_POKEBALLS,
+    BAG_SLOT_TMS,
     ITEM_RECORD_DESCRIPTION_MESSAGE_ID_OFFSET,
     ITEM_RECORD_KIND_OFFSET,
     ITEM_RECORD_NAME_MESSAGE_ID_OFFSET,
@@ -124,6 +129,58 @@ class ItemNameResolverTests(unittest.TestCase):
         db = make_database(valid_items=[0], records=[(2, 9999)])
         resolver = ItemNameResolver(db, FakeNameTable({5013: "Potion"}))
         self.assertIsNone(resolver.resolve_name(0))
+
+
+class KeyItemNameTests(unittest.TestCase):
+    """Naming key items lying on the floor.
+
+    Pickups are otherwise labelled by object class and never by contents,
+    because the game does not reveal what a sparkle holds until it is
+    taken. That is right for an ordinary pickup and wrong for a progression
+    gate -- the project owner was stuck in the Cipher lab, where progress
+    depends on finding a keycard on the floor and every ground pickup
+    announced as "Item".
+
+    Keyed on the item record's kind byte rather than a list of ids. The id
+    list this replaced (`{0x1FA: "ID Card"}`) solved one dungeon; the kind
+    byte solves all of them, and does not go stale when a hack renumbers
+    anything. Verified against the real extracted tables on 2026-08-19:
+    item 0x1FA reports kind 5 and resolves to "ID Card", and 54 items in
+    the XG build carry that kind."""
+
+    def test_a_key_item_resolves_to_its_name(self):
+        db = make_database(
+            valid_items=[0], records=[(BAG_SLOT_KEY_ITEMS, 5013)])
+        resolver = ItemNameResolver(db, FakeNameTable({5013: "ID Card"}))
+        self.assertEqual(resolver.resolve_key_item_name(0), "ID Card")
+
+    def test_an_ordinary_item_resolves_to_none(self):
+        """The whole point: this must say nothing about a Potion."""
+        db = make_database(valid_items=[0], records=[(BAG_SLOT_ITEMS, 5013)])
+        resolver = ItemNameResolver(db, FakeNameTable({5013: "Potion"}))
+        self.assertIsNone(resolver.resolve_key_item_name(0))
+        self.assertEqual(resolver.resolve_name(0), "Potion")
+
+    def test_every_other_bag_slot_is_refused(self):
+        for kind in (BAG_SLOT_POKEBALLS, BAG_SLOT_ITEMS, BAG_SLOT_BERRIES,
+                     BAG_SLOT_TMS):
+            db = make_database(valid_items=[0], records=[(kind, 5013)])
+            resolver = ItemNameResolver(db, FakeNameTable({5013: "Thing"}))
+            self.assertIsNone(
+                resolver.resolve_key_item_name(0),
+                f"bag slot {kind} was named as a key item")
+
+    def test_an_unknown_item_id_returns_none(self):
+        db = make_database(
+            valid_items=[0], records=[(BAG_SLOT_KEY_ITEMS, 5013)])
+        resolver = ItemNameResolver(db, FakeNameTable({5013: "ID Card"}))
+        self.assertIsNone(resolver.resolve_key_item_name(999))
+
+    def test_a_key_item_missing_from_the_name_table_returns_none(self):
+        db = make_database(
+            valid_items=[0], records=[(BAG_SLOT_KEY_ITEMS, 9999)])
+        resolver = ItemNameResolver(db, FakeNameTable({5013: "ID Card"}))
+        self.assertIsNone(resolver.resolve_key_item_name(0))
 
 
 class ItemDescriptionTableTests(unittest.TestCase):

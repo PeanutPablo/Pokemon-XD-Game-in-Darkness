@@ -3689,9 +3689,33 @@ BAG_SLOT_KEY_ITEMS` would name every key item on the floor, in XD and in
 XG, from the game's own tables, with no id list to maintain.
 
 That is a player-facing policy change — it decides what a whole class of
-pickup announces as — so it is recorded here rather than done unasked. It
-is also the shape the project's own rules prefer: derive the category from
-the image in hand instead of enumerating ids that a hack may renumber.
+pickup announces as — so it was put to the project owner rather than done
+unasked.
+
+**Done, at their instruction, the same day (Claude).** `SPECIAL_LOOSE_LABELS`
+is gone. `ItemNameResolver.resolve_key_item_name` returns an item's own
+name when its record's kind byte is `BAG_SLOT_KEY_ITEMS` and None
+otherwise; `LiveTreasureEntitySource` takes it as `key_item_name` and
+applies it to loose pickups only.
+
+Checked against the real extracted tables before the id table was removed,
+rather than assumed: item `0x1FA` reports `kind=5` and resolves to
+"ID Card" in both extracted builds (`GXXE01-7BB1937C` and
+`GXXE01-8FF9D518`), so the general rule provably covers the case the id
+table was added for. 54 items carry that kind in XG, among them Safe Key,
+Elevator Key, Machine Part, Gonzap's Key, SD Card, System Lever and
+Mirror Radar — every one a thing a player can be stranded without.
+
+Two deliberate limits. **Boxes are excluded**, even when they hold a key
+item: a box is a container the player can tell is a container, while a
+floor sparkle in a dungeon is a thing they can walk past without ever
+knowing it mattered. And **a failing resolver costs the name, not the
+pickup** — the item tables are generated per machine from the player's own
+disc, so a half-generated tree degrades to "Item" rather than taking out
+the whole item category.
+
+Still not live-tested: whether "ID Card" is what is actually spoken in the
+Cipher lab.
 
 Committed by Claude at the owner's instruction, with the suite green at its
 known baseline. Not live-tested: whether the announcement fires on a real
