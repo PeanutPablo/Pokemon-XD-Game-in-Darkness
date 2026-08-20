@@ -255,22 +255,10 @@ def _apply_footstep_volume(controller, value):
 
 
 def _apply_auto_repeat(controller, value):
-    reader = getattr(controller, "entity_nav_reader", None)
-    if reader is not None:
-        reader.auto_repeat_enabled = value
-
-
-def _apply_auto_repeat_delay(controller, value):
-    reader = getattr(controller, "entity_nav_reader", None)
-    if reader is not None:
-        reader.auto_repeat_seconds = value
-
-
-def _apply_entity_location(controller, value):
     """Push the setting into the reader, and let the reader push back.
 
     The second half is what stops `ctrl+l` and the settings menu becoming
-    two opinions about one setting. The hotkey flips `location_enabled`
+    two opinions about one setting. The hotkey flips `auto_repeat_enabled`
     directly -- it has to, the menu may never have been opened -- and
     without this callback the store would still hold the old value, save
     it on the next unrelated change, and quietly undo the player's choice
@@ -282,11 +270,17 @@ def _apply_entity_location(controller, value):
     reader = getattr(controller, "entity_nav_reader", None)
     if reader is None:
         return
-    reader.location_enabled = value
+    reader.auto_repeat_enabled = value
     store = getattr(controller, "settings", None)
     if store is not None:
-        reader.on_location_change = lambda new_value: store.set(
-            "speech.entity_location", new_value, controller)
+        reader.on_auto_repeat_change = lambda new_value: store.set(
+            "speech.auto_repeat", new_value, controller)
+
+
+def _apply_auto_repeat_delay(controller, value):
+    reader = getattr(controller, "entity_nav_reader", None)
+    if reader is not None:
+        reader.auto_repeat_seconds = value
 
 
 def _guide_readers(controller):
@@ -401,18 +395,12 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
                 "speech.auto_repeat", "Repeat selection when you stop", True,
                 applier=_apply_auto_repeat,
                 description="Re-announce the selected entity once you stand "
-                            "still."),
+                            "still. Also on ctrl+L while you play."),
             Number(
                 "speech.auto_repeat_delay", "Repeat delay",
                 profile.entity_nav_auto_repeat_seconds,
                 0.5, 5.0, 0.5, unit="seconds",
                 applier=_apply_auto_repeat_delay),
-            Toggle(
-                "speech.entity_location", "Direction and distance", True,
-                applier=_apply_entity_location,
-                description="Say which way a selected thing is and how far, "
-                            "as in \"3 o'clock, distance 47\". Also on "
-                            "ctrl+L while you play."),
         )),
         Category("Navigation", (
             Number(

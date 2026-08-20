@@ -105,29 +105,14 @@ def clock_position(horizontal, forward_component, right_component, same_position
     return 12 if clock == 0 else clock
 
 
-def describe_entity(profile, category_key, entity, pose, include_category=True,
-                    include_location=True):
+def describe_entity(profile, category_key, entity, pose, include_category=True):
     """`include_category=False` drops the leading category word.
 
     Cycling within a category repeats it on every single press -- "NPC.
     Jovi...", "NPC. Krane...", "NPC. Lily..." -- which is pure padding in
     front of the thing the player actually wants, on the hotkey they press
     most. The category is still announced when it CHANGES (switching
-    categories), which is where it carries information.
-
-    `include_location=False` drops the clock direction and distance --
-    "3 o'clock, distance 47", and the "above"/"below" and "same position"
-    forms of the same statement. Toggled by `ctrl+l`; see
-    `profile.default_entity_location_hotkey`.
-
-    What it deliberately does NOT drop is the interaction verdict
-    ("Interaction available", "In range but facing away, walk toward it").
-    Those read like position but are not: they come from the game's own
-    predicate about whether pressing A will do anything, which is the
-    single most useful thing the announcement carries and the reason a
-    player cycles the list at all. Someone silencing "3 o'clock, distance
-    47" is asking for less arithmetic, not for the game to stop telling
-    them what they can touch."""
+    categories), which is where it carries information."""
     horizontal, forward, right, vertical = relative_geometry(pose, entity.position)
     clock = clock_position(
         horizontal, forward, right, profile.entity_nav_same_position_threshold
@@ -151,14 +136,13 @@ def describe_entity(profile, category_key, entity, pose, include_category=True,
             pieces.append(singular)
         if entity.label:
             pieces.append(entity.label)
-    if include_location:
-        if clock is None:
-            pieces.append("same position")
-        else:
-            clock_piece = f"{clock} o'clock, distance {round(horizontal)}"
-            if abs(vertical) > profile.entity_nav_vertical_threshold:
-                clock_piece += ", " + ("above" if vertical > 0 else "below")
-            pieces.append(clock_piece)
+    if clock is None:
+        pieces.append("same position")
+    else:
+        clock_piece = f"{clock} o'clock, distance {round(horizontal)}"
+        if abs(vertical) > profile.entity_nav_vertical_threshold:
+            clock_piece += ", " + ("above" if vertical > 0 else "below")
+        pieces.append(clock_piece)
     verdict = entity.metadata.get("verdict") if entity.metadata else None
     if verdict is not None:
         # The source already evaluated the game's OWN predicate against the
@@ -257,20 +241,11 @@ class EntityNavigator:
         """Settings-menu override for the stand-still delay, or None to use
         the profile's own `entity_nav_auto_repeat_seconds`. The profile is a
         frozen dataclass and is never mutated."""
-        self.location_enabled = True
-        """Whether the clock direction and distance are spoken with each
-        entity. Toggled by `ctrl+l` and by the settings menu, which write
-        the same attribute -- the hotkey is a way to reach the setting
-        without opening the menu, not a second, competing piece of state.
-
-        On by default: it is what every release so far has said, and a
-        player who has never heard of this key should not lose information
-        they were relying on."""
-        self.on_location_change = None
-        """Called with the new value when `ctrl+l` flips `location_enabled`,
-        so the settings store can persist it. None in tests and in any
-        build without a settings store; the hotkey still works, the choice
-        just does not survive a restart."""
+        self.on_auto_repeat_change = None
+        """Called with the new value when `ctrl+l` flips
+        `auto_repeat_enabled`, so the settings store can persist it. None
+        in tests and in any build without a settings store; the hotkey
+        still works, the choice just does not survive a restart."""
 
     def clear(self, reason):
         self.state = NavState()
@@ -367,8 +342,7 @@ class EntityNavigator:
             # No category word on the entity: the header just said it, so
             # including it produced "NPCs. 1 available. NPC. Rui...".
             self._speak(header + " " + describe_entity(
-                p, key, ordered[0], pose, include_category=False,
-                include_location=self.location_enabled))
+                p, key, ordered[0], pose, include_category=False))
         else:
             self._speak(header)
 
@@ -410,7 +384,7 @@ class EntityNavigator:
         pose = source.player_pose()
         self._speak(describe_entity(
             self.profile, self.state.category_key, entities[new_identity], pose,
-            include_category=False, include_location=self.location_enabled,
+            include_category=False,
         ))
 
     def _repeat(self):
@@ -427,28 +401,33 @@ class EntityNavigator:
             self._speak(ENTITY_GONE_MESSAGE)
             return
         pose = source.player_pose()
-        self._speak(describe_entity(
-            self.profile, self.state.category_key, entity, pose,
-            include_location=self.location_enabled))
+        self._speak(describe_entity(self.profile, self.state.category_key, entity, pose))
 
-    def _toggle_location(self):
-        """Flip the direction-and-distance setting and say what it now is.
+    def _toggle_auto_repeat(self):
+        """Flip the stand-still re-announcement and say what it now is.
 
-        The confirmation is not optional. This key changes what every later
-        announcement will contain, and the player cannot see a checkbox --
-        without a spoken result, the only way to discover which way it went
-        is to press an entity key and listen for something missing.
+        This is what `ctrl+l` is for. It switches off the UNPROMPTED
+        repeat -- the one that fires on its own once the player stops
+        moving -- and deliberately leaves the manual keys alone: `repeat`
+        still works, because turning off an interruption is not the same
+        as giving up the ability to ask.
 
-        `on_change` is how the settings store hears about it, so a toggle
-        made here is saved and shows the same value next time the menu is
-        opened. Without that the hotkey and the menu would be two separate
-        opinions about one setting, and the menu would win at next launch."""
-        self.location_enabled = not self.location_enabled
-        if self.on_location_change is not None:
-            self.on_location_change(self.location_enabled)
+        The confirmation is not optional. The player cannot see a
+        checkbox, and the thing being switched is something that happens
+        when they do nothing, so without a spoken result the only way to
+        learn the state is to stand still and wait to find out.
+
+        `on_auto_repeat_change` is how the settings store hears about it,
+        so a toggle made in play is saved and the menu shows the same
+        value next time it is opened. Without it the hotkey and the menu
+        would be two opinions about one setting, and the menu would win at
+        the next launch."""
+        self.auto_repeat_enabled = not self.auto_repeat_enabled
+        if self.on_auto_repeat_change is not None:
+            self.on_auto_repeat_change(self.auto_repeat_enabled)
         self._speak(
-            "Location and distance on" if self.location_enabled
-            else "Location and distance off")
+            "Repeat when you stop, on" if self.auto_repeat_enabled
+            else "Repeat when you stop, off")
 
     def _poll_auto_repeat(self):
         """Re-announce the current selection once the player has stood still
@@ -520,8 +499,7 @@ class EntityNavigator:
             self._announced_this_stop = True
             return
         self._speak(describe_entity(
-            p, self.state.category_key, entity, pose,
-            include_location=self.location_enabled))
+            p, self.state.category_key, entity, pose))
 
     def poll_once(self, dialogue_active=False):
         self._refresh_context(dialogue_active)
@@ -537,8 +515,9 @@ class EntityNavigator:
         # arrived after `EntityNavReader` had several constructors in tests
         # and one in production, and a KeyError in the poll loop would take
         # the reader down rather than cost one hotkey.
-        location_hotkey = self.hotkeys.get("location")
-        location_fired = location_hotkey.poll() if location_hotkey else False
+        auto_repeat_hotkey = self.hotkeys.get("auto_repeat")
+        auto_repeat_fired = (
+            auto_repeat_hotkey.poll() if auto_repeat_hotkey else False)
         if not self.context_valid:
             # A menu or dialogue is up. Drop the stand-still tracking rather
             # than let it accumulate: the player is not "standing still" in
@@ -546,12 +525,12 @@ class EntityNavigator:
             # met with an immediate repeat.
             self._reset_auto_repeat()
             return
-        if location_fired:
+        if auto_repeat_fired:
             # First, and on its own branch: it is the only action here that
             # is not "tell me about an entity", and it must work even when
-            # nothing is selected -- a player turning the distances off is
-            # quite likely to do it before they start cycling.
-            self._toggle_location()
+            # nothing is selected -- someone silencing the automatic repeat
+            # is quite likely to do it before they start cycling.
+            self._toggle_auto_repeat()
         elif next_category_fired:
             self._switch_category(1)
         elif prev_category_fired:

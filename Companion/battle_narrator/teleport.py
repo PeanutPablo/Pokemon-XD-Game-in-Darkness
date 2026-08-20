@@ -44,12 +44,38 @@ deliberate, explicit exception, scoped as narrowly as possible:
 """
 import math
 import struct
+import time
 
+from .memory import MemoryError as GameMemoryError
 from .npc_beacons import Position
 from .speech import SpeechEventClass
 
 NO_SELECTION_MESSAGE = "No entity selected to teleport to."
 INVALID_POSITION_MESSAGE = "Teleport target position is invalid."
+UNREADABLE_MESSAGE = "Cannot teleport right now, try again."
+DID_NOT_TAKE_MESSAGE = "Teleport did not take. You did not move."
+
+VERIFY_AFTER_SECONDS = 0.35
+"""How long to wait before checking the player actually ended up there.
+
+Not optional, and not zero. The write goes straight into MEM1, so reading
+the position back immediately returns the bytes we just wrote -- which is
+why this reported success for every teleport it ever performed, including
+the ones the player watched do nothing. Only after the game has run a few
+frames does the position reflect what the ENGINE thinks, which is what
+decides whether the player really moved.
+
+0.35s is long enough for the engine to resolve collision and shove the
+player back out if it is going to, and short enough that the correction
+still arrives while the player is wondering."""
+
+VERIFY_TOLERANCE = 8.0
+"""How far from the requested point still counts as having arrived.
+
+Generous on purpose. The engine legitimately adjusts a landing: it
+resolves collision, snaps to the floor, and the player may already be
+walking. The question this answers is "did anything happen at all", not
+"did it land on the exact float"."""
 
 NPC_LIKE_CATEGORIES = frozenset({"npc"})
 DEFAULT_APPROACH_BUFFER = 6.0
@@ -78,7 +104,8 @@ def _npc_approach_position(entity_position, entity_interaction_distance, player_
 
 
 class TeleportReader:
-    def __init__(self, memory, profile, npc_source, entity_nav, hotkey, speech, logger):
+    def __init__(self, memory, profile, npc_source, entity_nav, hotkey, speech,
+                 logger, clock=time.monotonic):
         self.memory = memory
         self.profile = profile
         self.npc_source = npc_source
@@ -86,6 +113,10 @@ class TeleportReader:
         self.hotkey = hotkey
         self.speech = speech
         self.logger = logger
+        self.clock = clock
+        self._pending = None
+        """(target, label, deadline) for a teleport whose outcome has not
+        been checked yet, or None. See `VERIFY_AFTER_SECONDS`."""
 
     def _say(self, text):
         self.speech.emit(SpeechEventClass.ENTITY_NAV, text, deduplicate=False, interrupt=True)
@@ -102,6 +133,7 @@ class TeleportReader:
         return state.category_key, entities.get(state.selected_identity)
 
     def poll_once(self):
+        self._check_pending()
         triggered = self.hotkey.poll()
         if not triggered:
             return
@@ -109,7 +141,15 @@ class TeleportReader:
         if entity is None:
             self._say(NO_SELECTION_MESSAGE)
             return
-        pose = self.npc_source.player_pose()
+        try:
+            pose = self.npc_source.player_pose()
+        except GameMemoryError as problem:
+            # Same reason as the hero-model read below: the lifecycle
+            # catches this and logs it at debug, so an unreadable pose used
+            # to mean the key did nothing and said nothing.
+            self.logger.debug("TELEPORT player pose unreadable: %s", problem)
+            self._say(UNREADABLE_MESSAGE)
+            return
         if category in NPC_LIKE_CATEGORIES:
             target = _npc_approach_position(
                 entity.position, entity.interaction_distance, pose.position
@@ -119,10 +159,61 @@ class TeleportReader:
         if not all(math.isfinite(value) for value in (target.x, target.y, target.z)):
             self._say(INVALID_POSITION_MESSAGE)
             return
-        model = self.npc_source.hero_model_address()
+        try:
+            model = self.npc_source.hero_model_address()
+        except GameMemoryError as problem:
+            # Said, not swallowed. The lifecycle catches this and logs it at
+            # debug, so before this the player pressed the key and got
+            # silence -- indistinguishable from the key not registering.
+            self.logger.debug("TELEPORT hero model unreadable: %s", problem)
+            self._say(UNREADABLE_MESSAGE)
+            return
         data = struct.pack(">fff", target.x, target.y, target.z)
         self.memory.write_bytes(
             model + self.profile.model_position_offset, data, "teleport position write", 4
         )
         label = entity.label or category
         self._say(f"Teleported to {label}.")
+        # Confirmed now, checked shortly. The confirmation stays immediate
+        # because a delayed one reads as an unresponsive key; only a FAILURE
+        # produces a second message, so an ordinary teleport is still one
+        # sentence.
+        self._pending = (target, label, self.clock() + VERIFY_AFTER_SECONDS)
+        self.logger.info(
+            "TELEPORT wrote category=%s label=%s target=(%.2f, %.2f, %.2f)",
+            category, label, target.x, target.y, target.z)
+
+    def _check_pending(self):
+        """Did the player actually end up where they were sent?
+
+        This is the question the module never asked. It wrote the position,
+        announced success and moved on, so every failure mode the docstring
+        above describes -- landing inside collision and being shoved out,
+        landing at a height the room does not have -- was reported to the
+        player as a teleport that worked."""
+        if self._pending is None:
+            return
+        target, label, deadline = self._pending
+        if self.clock() < deadline:
+            return
+        self._pending = None
+        try:
+            landed = self.npc_source.player_pose().position
+        except GameMemoryError as problem:
+            # Cannot tell either way. Saying nothing is right: the player
+            # already heard the confirmation, and inventing a failure from
+            # a bad read would be its own defect.
+            self.logger.debug("TELEPORT could not verify: %s", problem)
+            return
+        distance = math.dist(
+            (landed.x, landed.y, landed.z), (target.x, target.y, target.z))
+        if distance <= VERIFY_TOLERANCE:
+            self.logger.info("TELEPORT verified label=%s off_by=%.2f",
+                             label, distance)
+            return
+        self.logger.warning(
+            "TELEPORT DID NOT TAKE label=%s off_by=%.2f "
+            "target=(%.2f, %.2f, %.2f) landed=(%.2f, %.2f, %.2f)",
+            label, distance, target.x, target.y, target.z,
+            landed.x, landed.y, landed.z)
+        self._say(DID_NOT_TAKE_MESSAGE)

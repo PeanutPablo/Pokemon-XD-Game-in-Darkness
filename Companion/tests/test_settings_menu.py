@@ -719,13 +719,13 @@ class AutoRepeatSettingTests(unittest.TestCase):
         self.assertEqual(navigator.auto_repeat_seconds, 2.5)
 
 
-class EntityLocationSettingTests(unittest.TestCase):
+class AutoRepeatCallbackTests(unittest.TestCase):
     """ctrl+L and the Speech category are one setting, not two.
 
-    The hotkey flips `location_enabled` on the reader directly -- it has
-    to, the menu may never have been opened. If the store never hears
-    about that, it keeps the stale value, writes it on the next unrelated
-    change, and silently undoes the player's choice at the next launch."""
+    The hotkey flips `auto_repeat_enabled` on the reader directly -- it has
+    to, the menu may never have been opened. If the store never hears about
+    that, it keeps the stale value, writes it on the next unrelated change,
+    and silently undoes the player's choice at the next launch."""
 
     def navigator(self):
         return EntityNavigator(
@@ -736,34 +736,23 @@ class EntityLocationSettingTests(unittest.TestCase):
         return SettingsStore(
             build_categories(), logger=logging.getLogger("settings-test"))
 
-    def test_it_is_on_by_default(self):
-        self.assertTrue(self.navigator().location_enabled)
-
-    def test_the_menu_writes_the_reader(self):
-        store, navigator = self.store(), self.navigator()
-        controller = Controller(entity_nav_reader=navigator)
-        store.set("speech.entity_location", False, controller)
-        self.assertFalse(navigator.location_enabled)
-
     def test_the_applier_wires_the_reader_back_to_the_store(self):
         store, navigator = self.store(), self.navigator()
         controller = Controller(entity_nav_reader=navigator, settings=store)
         store.apply_all(controller)
-        self.assertIsNotNone(navigator.on_location_change)
-        navigator.on_location_change(False)
-        self.assertFalse(store.values["speech.entity_location"])
+        self.assertIsNotNone(navigator.on_auto_repeat_change)
+        navigator.on_auto_repeat_change(False)
+        self.assertFalse(store.values["speech.auto_repeat"])
 
     def test_a_controller_with_no_store_still_applies_the_value(self):
-        """Callback wiring is a bonus; the setting itself must still land."""
         store, navigator = self.store(), self.navigator()
         controller = Controller(entity_nav_reader=navigator)
-        store.set("speech.entity_location", False, controller)
-        self.assertFalse(navigator.location_enabled)
-        self.assertIsNone(navigator.on_location_change)
+        store.set("speech.auto_repeat", False, controller)
+        self.assertFalse(navigator.auto_repeat_enabled)
+        self.assertIsNone(navigator.on_auto_repeat_change)
 
     def test_the_applier_tolerates_a_missing_reader(self):
-        store = self.store()
-        store.set("speech.entity_location", False, Controller())
+        self.store().set("speech.auto_repeat", False, Controller())
 
 
 class BuiltCategoryTests(unittest.TestCase):

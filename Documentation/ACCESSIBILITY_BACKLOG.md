@@ -6,6 +6,77 @@ Per [ACCESSIBILITY_MASTER_PLAN.md](ACCESSIBILITY_MASTER_PLAN.md)'s work-in-progr
 
 ---
 
+## Open finding — teleport lands wrong, and used to claim it had not (2026-08-19)
+
+**Reported by the project owner: "teleporting doesn't work all the time."
+Partly fixed. The reporting defect is closed; the two suspected landing
+defects are NOT changed, because changing where a teleport puts the player
+needs a live test and this project does not do that from a code read.**
+
+### What was fixed
+
+`teleport.py` wrote the position, said "Teleported to X", and moved on. It
+never checked. So every failure mode its own module docstring already
+describes — landing inside collision and being shoved straight back out —
+was announced to the player as a teleport that had worked.
+
+It now verifies, and the check is **deferred by 0.35s on purpose**. The
+write goes into MEM1, so reading the position back immediately returns the
+bytes just written and would confirm every teleport ever performed,
+including the ones the player watched do nothing. Only after the engine has
+run frames does the position mean anything. On failure it says "Teleport
+did not take. You did not move." and logs target versus landed.
+
+Also: an unreadable hero model or player pose used to be caught by
+`phase1b_lifecycle.poll_teleport`, logged at debug, and produce **silence**
+— indistinguishable from the key not registering. Both now speak.
+
+The log had 629 successful "Teleported to" lines and exactly 1 read
+failure, which is what made this worth attacking from the reporting side
+first: the companion was not detecting the failures at all, so the log
+could not say how often they happen. It can now.
+
+### What is suspected and NOT fixed
+
+**1. Only `npc` gets the collision pull-back.** `NPC_LIKE_CATEGORIES` is
+`{"npc"}`. The module docstring explains why NPCs need it — landing on
+their coordinates puts the player inside their collision and the game
+shoves them out, which "looked like teleport does nothing". But `interact`
+(televisions, beds, machines, consoles, the Snag Machine, the Relic Stone)
+are solid objects too, and so are treasure boxes under `item`. Those get
+no pull-back. Warps and doors legitimately must NOT get one — landing on
+the trigger is the point.
+
+**2. Every non-NPC category lands at the PLAYER's current Y.**
+`Position(entity.position.x, pose.position.y, entity.position.z)`. That is
+deliberate and documented: those entity Y values are CCD centroids at
+arbitrary heights. But it is wrong whenever the target is on a different
+floor of the same room — and the log shows exactly those targets, e.g.
+"Teleported to to Pyrite Town hotel, 2nd floor". Right X/Z at the wrong
+height is inside geometry or under the floor, and the engine rejects it.
+
+The fix for (2) is to resolve the walkable ground height at the target X/Z
+from the room's own collision data rather than assuming the player's.
+`pathfinding.walk_height_candidates` and
+`terrain_footsteps.find_ground_triangle` already do this, and
+`phase1b_app` already has `warp_collision_dir` and `room_codes` in scope
+where `TeleportReader` is built, so the plumbing is short. What is not
+settled is which candidate height to choose when a room stacks several at
+one X/Z — and note that the suite's two long-standing failures are in
+`test_passability.DestinationProjectionTests`, which is precisely the
+cross-level projection question. Do not change this without a live test,
+and check whether that in-flight work lands first.
+
+### How to test it live
+
+The new "Teleport did not take" message makes this cheap: teleport around
+a multi-floor room (the Pyrite hotel) and to interactables, and read
+`TELEPORT DID NOT TAKE` lines out of the log with their target and landed
+coordinates. That says which of (1) and (2) is real, and how often, before
+anything changes.
+
+---
+
 ## Open finding — footsteps go silent while beacons keep working (2026-08-18)
 
 **Reported by the project owner as "a few times the beacons will activate

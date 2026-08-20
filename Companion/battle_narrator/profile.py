@@ -1176,21 +1176,24 @@ class AddressProfile:
     default_entity_next_category_hotkey: str = "ctrl+shift+period"
     default_entity_prev_category_hotkey: str = "ctrl+shift+comma"
     default_entity_repeat_hotkey: str = "ctrl+slash"
-    default_entity_location_hotkey: str = "ctrl+l"
-    """Toggles whether the clock direction and distance are spoken with
-    each entity, added 2026-08-19 at the project owner's request.
+    default_entity_auto_repeat_hotkey: str = "ctrl+l"
+    """Toggles the stand-still re-announcement, added 2026-08-19 at the
+    project owner's request.
 
     `ctrl+l` is free: no other hotkey in this profile claims it, and it
     carries no meaning in a stock Dolphin. It is a plain two-key chord
     like every other entity-navigation key, so nothing about reaching it
     is different from the keys it sits beside.
 
-    Why a toggle and not a separate "say the location" key: the direction
-    and distance are on EVERY announcement, including the automatic
-    stand-still repeat. A player who does not want them cannot decline
-    them press by press -- they would have to stop using entity navigation.
-    The choice belongs to a setting, and the hotkey is a way to reach that
-    setting without opening the menu."""
+    It switches off the UNPROMPTED repeat only. The manual `repeat` key
+    is deliberately unaffected: silencing something that speaks on its own
+    is not the same as giving up the ability to ask for it.
+
+    The same switch is in the settings menu under Speech. The hotkey
+    exists because this is the one setting a player wants to change in the
+    middle of doing something else -- standing still to think, and being
+    talked at for it -- and opening a menu to stop that is the wrong
+    shape."""
     # There is no refresh hotkey. It held ctrl+shift+slash until
     # 2026-08-16, when the project owner asked for autowalk on that chord
     # and then, told what refresh had been for, removed it outright rather

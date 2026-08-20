@@ -138,7 +138,7 @@ def hotkey_map():
         "next_category": Hotkey(),
         "prev_category": Hotkey(),
         "repeat": Hotkey(),
-        "location": Hotkey(),
+        "auto_repeat": Hotkey(),
     }
 
 
@@ -1175,132 +1175,78 @@ class StandStillAutoRepeatTests(unittest.TestCase):
             "closing the menu immediately triggered a repeat")
 
 
-class LocationToggleTests(unittest.TestCase):
-    """ctrl+L: speak the direction and distance, or do not.
+class AutoRepeatToggleTests(unittest.TestCase):
+    """ctrl+L: stop re-announcing the selection when the player stands still.
 
-    Added 2026-08-19 at the project owner's request. The setting is what
-    every announcement consults, including the automatic stand-still
-    repeat, so the tests below check the toggle reaches all of them rather
-    than only the key that was pressed."""
-
-    def entity_at(self, x, z, label="Rui"):
-        return entity(0, x, z, label=label)
+    Added 2026-08-19 at the project owner's request. The setting already
+    existed in the settings menu; what was missing was a way to reach it
+    without opening a menu, which matters because the thing being switched
+    off is an interruption that happens while you are trying to think."""
 
     def spoken(self, nav):
         return [text for _event, text, _dedupe, _interrupt in nav.speech.calls]
 
-    def test_the_direction_and_distance_are_spoken_by_default(self):
-        keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
-        keys["next_category"].fire = True
-        nav.poll_once()
-        self.assertIn("12 o'clock, distance 10", self.spoken(nav)[-1])
+    def test_it_is_on_by_default(self):
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")])
+        self.assertTrue(nav.auto_repeat_enabled)
 
-    def test_the_toggle_removes_them_from_the_next_announcement(self):
+    def test_the_hotkey_turns_it_off_and_says_so(self):
+        """The player cannot see a checkbox, and the thing switched is
+        something that happens when they do nothing -- without a spoken
+        result the only way to learn the state is to stand still and wait
+        to find out."""
         keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
-        keys["location"].fire = True
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")], hotkeys=keys)
+        keys["auto_repeat"].fire = True
         nav.poll_once()
-        keys["next_category"].fire = True
-        nav.poll_once()
-        said = self.spoken(nav)[-1]
-        self.assertNotIn("o'clock", said)
-        self.assertNotIn("distance", said)
-        self.assertIn("Rui", said)
-
-    def test_the_toggle_says_which_way_it_went(self):
-        """The player cannot see a checkbox. Silence would leave the only
-        way to discover the state as pressing another key and listening
-        for something missing."""
-        keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
-        keys["location"].fire = True
-        nav.poll_once()
-        self.assertEqual(self.spoken(nav)[-1], "Location and distance off")
-        keys["location"].fire = True
-        nav.poll_once()
-        self.assertEqual(self.spoken(nav)[-1], "Location and distance on")
+        self.assertFalse(nav.auto_repeat_enabled)
+        self.assertEqual(self.spoken(nav)[-1], "Repeat when you stop, off")
 
     def test_it_toggles_back_on(self):
         keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")], hotkeys=keys)
         for _ in range(2):
-            keys["location"].fire = True
+            keys["auto_repeat"].fire = True
             nav.poll_once()
-        keys["next_category"].fire = True
-        nav.poll_once()
-        self.assertIn("12 o'clock, distance 10", self.spoken(nav)[-1])
+        self.assertTrue(nav.auto_repeat_enabled)
+        self.assertEqual(self.spoken(nav)[-1], "Repeat when you stop, on")
 
     def test_it_works_before_anything_is_selected(self):
-        """A player turning the distances off is quite likely to do it
-        before they start cycling, so this must not need a selection."""
         keys = hotkey_map()
         nav, _ = navigator([], hotkeys=keys)
-        keys["location"].fire = True
+        keys["auto_repeat"].fire = True
         nav.poll_once()
-        self.assertEqual(self.spoken(nav)[-1], "Location and distance off")
-        self.assertFalse(nav.location_enabled)
+        self.assertFalse(nav.auto_repeat_enabled)
 
-    def test_cycling_within_a_category_also_honours_it(self):
+    def test_the_manual_repeat_key_still_works_when_it_is_off(self):
+        """Deliberate: silencing something that speaks on its own is not
+        the same as giving up the ability to ask for it."""
         keys = hotkey_map()
-        nav, _ = navigator(
-            [self.entity_at(0, -10, "Rui"), self.entity_at(0, -20, "Jovi")],
-            hotkeys=keys)
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")], hotkeys=keys)
         keys["next_category"].fire = True
         nav.poll_once()
-        keys["location"].fire = True
-        nav.poll_once()
-        keys["next"].fire = True
-        nav.poll_once()
-        said = self.spoken(nav)[-1]
-        self.assertIn("Jovi", said)
-        self.assertNotIn("o'clock", said)
-
-    def test_repeat_also_honours_it(self):
-        keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
-        keys["next_category"].fire = True
-        nav.poll_once()
-        keys["location"].fire = True
+        keys["auto_repeat"].fire = True
         nav.poll_once()
         keys["repeat"].fire = True
         nav.poll_once()
-        self.assertNotIn("o'clock", self.spoken(nav)[-1])
+        self.assertIn("Rui", self.spoken(nav)[-1])
 
-    def test_the_interaction_verdict_is_not_silenced_with_the_distance(self):
-        """Deliberate: the verdict is the game's own answer to "will
-        pressing A do anything", which is why the list gets cycled at all.
-        Silencing arithmetic is not a request to stop being told what can
-        be touched."""
-        from battle_narrator.entity_nav import describe_entity
-        target = entity(0, 0, -3, label="Rui", interaction=30.0)
-        pose = PlayerPose(Position(0, 0, 0), 0, facing=0.0)
-        said = describe_entity(
-            XD_US_REV0, "npc", target, pose, include_location=False)
-        self.assertNotIn("o'clock", said)
-        self.assertIn("Interaction available", said)
-
-    def test_a_missing_location_hotkey_does_not_break_the_poll_loop(self):
-        """Every other entry is required; this one arrived later, and a
-        KeyError here would cost the reader rather than one hotkey."""
+    def test_a_missing_hotkey_does_not_break_the_poll_loop(self):
         keys = hotkey_map()
-        del keys["location"]
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
+        del keys["auto_repeat"]
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")], hotkeys=keys)
         keys["next_category"].fire = True
         nav.poll_once()
         self.assertIn("Rui", self.spoken(nav)[-1])
 
     def test_the_store_is_told_so_the_choice_survives_a_restart(self):
-        """Without this the menu and the hotkey are two opinions about one
-        setting, and the menu wins at next launch."""
         keys = hotkey_map()
-        nav, _ = navigator([self.entity_at(0, -10)], hotkeys=keys)
+        nav, _ = navigator([entity(0, 0, -10, label="Rui")], hotkeys=keys)
         seen = []
-        nav.on_location_change = seen.append
-        keys["location"].fire = True
-        nav.poll_once()
-        keys["location"].fire = True
-        nav.poll_once()
+        nav.on_auto_repeat_change = seen.append
+        for _ in range(2):
+            keys["auto_repeat"].fire = True
+            nav.poll_once()
         self.assertEqual(seen, [False, True])
 
 
