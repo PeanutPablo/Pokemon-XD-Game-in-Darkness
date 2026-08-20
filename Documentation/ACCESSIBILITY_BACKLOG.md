@@ -159,6 +159,77 @@ has already reversed its position on cross-level destinations twice
 
 ---
 
+## Teleport: the write is reverted outright (2026-08-20, live from a release)
+
+**First live evidence, from the project owner running the packaged 0.1.0
+release. Five teleports, five failures, zero verified.** The detection
+added on 2026-08-19 caught every one, so they were told "Teleport did not
+take" rather than a false success, and the log recorded target against
+landed. That data contradicts what this module has assumed since it was
+built.
+
+    label=Elevator to lab, basement level 3
+      off_by=59.68   target=(135.01, 0.00, -229.13)  landed=(124.36, 0.00, -170.41)
+    label=to lab, basement level 2 B
+      off_by=63.22   target=( 43.27, 0.00, -213.81)  landed=(106.32, 0.00, -218.51)
+    label=to lab, basement level 2 B
+      off_by=62.24   target=( 43.27, 0.00, -218.51)  landed=(105.52, 0.00, -218.51)
+    label=to lab, basement level 2 B
+      off_by=76.23   target=( 43.27, 0.00, -218.76)  landed=(119.51, 0.00, -218.51)
+    label=Healing machine
+      off_by=271.40  target=( 66.80, 0.00,  76.40)  landed=(124.82, 0.00, -188.73)
+
+### The player never moved at all
+
+Read the landed Z across the three consecutive attempts at the same exit:
+**-218.51, -218.51, -218.51**, while the landed X drifts 106.32 → 105.52 →
+119.51. That is a player standing in one place and walking a little
+between presses. It is not a player being placed somewhere and pushed
+back.
+
+**This kills the standing explanation.** The module docstring attributes
+failure to landing inside an NPC's collision and being "immediately shoved
+back out", and that is why `_npc_approach_position` exists. Shoved-out
+lands you NEAR the target — a body-width, a few units. 60 to 271 units
+away, with the player's own Z unchanged to the hundredth, means the write
+had no effect on the player's position whatsoever.
+
+Y is 0.00 on both sides of every row, so the cross-level landing-height
+theory in the entry below is not what these are either.
+
+### What that points at
+
+`teleport.py` writes to `hero_model_address() + profile.model_position_
+offset` (0x18). If the engine holds the authoritative player position
+somewhere else and copies it into the model every frame, that write is
+overwritten before it can matter — which is exactly what "wrote it, player
+did not move" looks like.
+
+Worth knowing before anyone digs: the same address is *read* successfully
+by `player_pose()` for every other feature, and entity navigation's
+distances are correct all session. So the model position is a faithful
+mirror of where the player is. It just may not be the thing the engine
+reads back.
+
+### Do not start from the collision theory
+
+`_npc_approach_position` and the NPC-only pull-back were built on the
+shoved-out reading, and the entry below proposed extending them to
+`interact` and `item`. **That extension would have been wasted work.**
+The Healing machine attempt here is category `interact`, and it missed by
+271 units — a pull-back of a few units changes nothing about that.
+
+Establish where the engine reads the player's position from first. Until
+that is known, everything else is decoration.
+
+### Still true and still useful
+
+The verification itself did its job on its first live outing: five silent
+failures became five spoken ones plus five diagnosable log lines. That is
+the only reason this entry can be written at all.
+
+---
+
 ## Open finding — teleport lands wrong, and used to claim it had not (2026-08-19)
 
 **Reported by the project owner: "teleporting doesn't work all the time."
