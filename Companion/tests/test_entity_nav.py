@@ -1200,7 +1200,7 @@ class AutoRepeatToggleTests(unittest.TestCase):
         keys["auto_repeat"].fire = True
         nav.poll_once()
         self.assertFalse(nav.auto_repeat_enabled)
-        self.assertEqual(self.spoken(nav)[-1], "Repeat when you stop, off")
+        self.assertEqual(self.spoken(nav)[-1], "Repeat on stop, off")
 
     def test_it_toggles_back_on(self):
         keys = hotkey_map()
@@ -1209,7 +1209,7 @@ class AutoRepeatToggleTests(unittest.TestCase):
             keys["auto_repeat"].fire = True
             nav.poll_once()
         self.assertTrue(nav.auto_repeat_enabled)
-        self.assertEqual(self.spoken(nav)[-1], "Repeat when you stop, on")
+        self.assertEqual(self.spoken(nav)[-1], "Repeat on stop, on")
 
     def test_it_works_before_anything_is_selected(self):
         keys = hotkey_map()

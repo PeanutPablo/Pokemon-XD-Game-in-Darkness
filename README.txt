@@ -162,7 +162,7 @@ from other programs.
   ctrl shift .      Next category
   ctrl shift ,      Previous category
   ctrl plus /       Repeat the current thing
-  ctrl plus l       Turn the repeat-when-you-stop on or off
+  ctrl plus l       Turn repeat-on-stop on or off
   ctrl plus g       Beacon on the selected thing
   ctrl plus n       Routed navigation guide to it
   ctrl shift /      Autowalk to the selected thing
@@ -186,10 +186,10 @@ selected. That is useful when you are walking toward something and
 want to know if you have arrived, and it is an interruption when you
 have stopped to think.
 
-ctrl plus l turns that off, and says "Repeat when you stop, off" so
+ctrl plus l turns that off, and says "Repeat on stop, off" so
 you know which way it went. Press it again to turn it back on. The
 setting is remembered, and it is also in the settings menu under
-Speech, as "Repeat selection when you stop".
+Speech, as "Repeat on stop".
 
 It only switches off the automatic repeat. ctrl plus / still repeats
 the selection whenever you ask for it.
@@ -300,7 +300,7 @@ Battles
   while you are aiming at it.
 
 The overworld
-  A navigable list of nearby NPCs, items, doors, warps, elevators,
+  A navigable list of nearby NPCs, items, doors, exits, elevators,
   PCs and shops, with a steerable audio beacon, terrain footsteps
   and a routed navigation guide.
 
@@ -321,7 +321,7 @@ Stated plainly, because finding out mid-dungeon is worse.
 
 The navigation guide sometimes says it cannot reach an exit that it
 should be able to reach. Confirmed and being worked on. It affects
-elevators and warps most. It does not refuse outright, it walks you
+exits most. It does not refuse outright, it walks you
 as close as it can while saying it cannot arrive. Most common in
 multi-level interiors.
 

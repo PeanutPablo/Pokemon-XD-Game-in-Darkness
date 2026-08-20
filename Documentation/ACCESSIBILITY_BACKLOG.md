@@ -83,7 +83,69 @@ like this one could be confirmed without the log saying whether the gap was
 The route build line now carries `partial=`, `partial_shortfall=` and
 `partial_vertical=`.
 
-### Next step, before any fix
+### ANSWERED 2026-08-20: it is horizontal, on the same level
+
+The logging added for exactly this question came back, over 47 partial
+routes from the project owner's session:
+
+| | |
+|---|---|
+| mean shortfall | **93.4 units** (max 247.8) |
+| mean vertical | **1.78 units** (max 8.91) |
+| vertical < 3.0 (same level) | **34 of 47 — 72%** |
+| vertical >= 3.0 | 13 of 47 — 28% |
+
+**The cross-level explanation is dead.** Even the 28% "steep" cases top
+out at 8.91 units, which is a step or a ramp; a storey in this game is
+separated by far more (the projection test uses 45). Set against a mean
+93-unit horizontal shortfall, every one of these is a route that failed to
+cross flat ground.
+
+So it is the other branch: **the walk graph is refusing ground the player
+can actually cross.** Refusing was not correct, and the message players see
+is not over-cautious — the route really does stop ~93 units short of
+somewhere they can walk to.
+
+### The concrete lead
+
+`D1_labo_B3` — the room most of these come from — already has measured
+numbers in `pathfinding.py`'s collision-radius block, taken when the radius
+was corrected from 4.00 to 3.50 on 2026-08-04:
+
+    room            positions   min      <3.0    <3.5    <4.0
+    D1_labo_B3            41   2.684    2.4%   14.6%   51.2%
+
+Those are positions **the engine let the player stand in**. In that room,
+14.6% of them are closer to a wall than the 3.50 radius the router tests
+with, and the closest is 2.684. Ground the player demonstrably occupies is
+therefore classified as inside an obstacle — which is exactly the failure
+mode that block already describes for the old 4.00 value ("51-69% of the
+positions the player was actually standing in were classified as inside an
+obstacle"), just smaller and still present.
+
+The block dismisses the sub-3.5 readings as measurement error from
+two-decimal rounding and the triangle approximation. That was a reasonable
+call against 4.00, where the alternative explanation was overwhelming. It
+is worth re-examining for `D1_labo_B3` specifically: 0.8 units below the
+radius is a lot of rounding, and this is the room the failures cluster in.
+
+**Do not simply lower the radius.** 3.50 is pinned behaviourally across
+four rooms and is a real value in the `peopleInfo` table; moving it to fit
+one room would be fitting a number to a symptom, which is the mistake the
+2026-08-04 correction exists to record.
+
+Two things worth checking first, in order:
+
+1. **The triangle approximation.** `_swept_points_blocked` reduces every
+   wall triangle to `_triangle_longest_edge_xz` and tests distance to that
+   one segment. Whether that is conservative or permissive in this room's
+   geometry has not been established — it is asserted in a docstring, not
+   measured. Measure it before trusting either direction.
+2. **Per-room clearance.** Re-run the clearance measurement against the
+   current build for `D1_labo_B3` and see whether the 2.684 minimum still
+   holds, or was an artefact of the old geometry pipeline.
+
+### Original next step (superseded by the answer above)
 
 One short play session in the lab basement, walking to the elevator and to
 a couple of warps. Then read `partial_vertical` out of the route build

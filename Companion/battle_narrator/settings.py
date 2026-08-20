@@ -351,7 +351,7 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
         Category("Sounds", (
             Toggle(
                 "sounds.beacons", "Entity beacons", True,
-                description="Ambient sounds for nearby NPCs, doors, warps, "
+                description="Ambient sounds for nearby NPCs, doors, exits, "
                             "items and elevators."),
             Number(
                 "sounds.beacon_volume", "Beacon volume",
@@ -359,11 +359,11 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
                 0.0, 1.0, 0.05, unit="percent",
                 applier=_apply_beacon_volume),
             Number(
-                "sounds.warp_beacon_volume", "Warp beacon volume",
+                "sounds.warp_beacon_volume", "Exit beacon volume",
                 npc_beacons.PASSIVE_BEACON_CATEGORY_GAIN.get("warp", 1.0),
                 0.0, 1.0, 0.05, unit="percent",
                 applier=_apply_warp_beacon_volume,
-                description="Warps are the densest category; this trims "
+                description="Exits are the densest category; this trims "
                             "them alone."),
             Number(
                 "sounds.beacon_range", "Beacon range",
@@ -380,8 +380,10 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
                 applier=_apply_footstep_volume),
             Toggle(
                 "sounds.blocked_cue", "Blocked movement cue", False,
-                description="Experimental: a tone when you walk into "
-                            "something."),
+                description="A tone when you walk into something. "
+                            "Experimental, and OFF unless you switch it on "
+                            "here -- which is why you will not have heard "
+                            "it."),
         )),
         Category("Speech", (
             Toggle(
@@ -392,7 +394,7 @@ def build_categories(hotkeys=(), profile=XD_US_REV0, sound_library=None):
                 description="Speak when something in front of you can be "
                             "interacted with."),
             Toggle(
-                "speech.auto_repeat", "Repeat selection when you stop", True,
+                "speech.auto_repeat", "Repeat on stop", True,
                 applier=_apply_auto_repeat,
                 description="Re-announce the selected entity once you stand "
                             "still. Also on ctrl+L while you play."),

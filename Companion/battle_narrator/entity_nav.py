@@ -426,8 +426,8 @@ class EntityNavigator:
         if self.on_auto_repeat_change is not None:
             self.on_auto_repeat_change(self.auto_repeat_enabled)
         self._speak(
-            "Repeat when you stop, on" if self.auto_repeat_enabled
-            else "Repeat when you stop, off")
+            "Repeat on stop, on" if self.auto_repeat_enabled
+            else "Repeat on stop, off")
 
     def _poll_auto_repeat(self):
         """Re-announce the current selection once the player has stood still

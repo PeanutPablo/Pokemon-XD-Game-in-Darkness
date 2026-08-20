@@ -107,8 +107,9 @@ That step is not yet handled by this installer.
 ### Finding your way around
 
 - **A navigable list of everything nearby**, grouped into categories you
-  cycle through: NPCs, items, doors, exits (warps and elevators),
-  interactables, Gateon Port's bridges, and hazards
+  cycle through: NPCs, items, doors, exits (the doorways and elevators
+  that move you between areas), interactables, Gateon Port's bridges, and
+  hazards
 - **Direction and distance** for whatever you have selected, as a clock
   bearing — "3 o'clock, distance 47"
 - **A steerable audio beacon** you can lock onto something and walk toward
@@ -158,7 +159,7 @@ other programs.
 | `ctrl` + `.` / `ctrl` + `,` | Next / previous nearby thing |
 | `ctrl` + `shift` + `.` / `,` | Next / previous category |
 | `ctrl` + `/` | Repeat the current selection |
-| `ctrl` + `L` | Turn the repeat-when-you-stop on or off |
+| `ctrl` + `L` | Turn "repeat on stop" on or off |
 | `ctrl` + `G` | Audio beacon on the selection |
 | `ctrl` + `N` | Routed navigation guide to it |
 | `ctrl` + `shift` + `/` | Autowalk to it |
@@ -219,7 +220,7 @@ Stated plainly, because finding out mid-dungeon is worse.
 
 - **The navigation guide sometimes says it cannot reach an exit that it
   should be able to reach.** Confirmed and diagnosed, not yet fixed. It
-  affects elevators and warps most, and it does not refuse outright — it
+  affects exits most, and it does not refuse outright — it
   walks you as close as it can while saying it cannot arrive. Most common
   in multi-level interiors.
 - **Teleport can report success without moving you.** It now tells you

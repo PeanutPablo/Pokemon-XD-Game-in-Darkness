@@ -403,7 +403,7 @@ def hotkey_reference(args):
         ("Next entity category", args.entity_next_category_hotkey),
         ("Previous entity category", args.entity_prev_category_hotkey),
         ("Repeat selection", args.entity_repeat_hotkey),
-        ("Repeat when you stop, on or off", args.entity_auto_repeat_hotkey),
+        ("Repeat on stop, on or off", args.entity_auto_repeat_hotkey),
         ("Beacon on selection", args.audio_guide_hotkey),
         ("Routed navigation guide", args.navigation_guide_hotkey),
         ("Autowalk to selection", args.autowalk_hotkey),
