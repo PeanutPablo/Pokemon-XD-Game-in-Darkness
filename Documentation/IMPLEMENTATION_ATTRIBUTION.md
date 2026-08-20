@@ -3625,3 +3625,74 @@ engine's live object-enable state in the one room whose piers toggle. The
 defect reproduces from the same data on a different destination in the same
 room (region 11), and that is what the tests pin. Whether autowalk now
 reaches the world-map exit at Gateon Port is a live question, still open.
+
+## 2026-08-19 — Codex: loose-item drop announcement and the ID Card label
+
+**Recorded by Claude, not signed by Codex.** The project owner states this
+was Codex's work and that Codex is instructed to sign each change it makes;
+no signed entry accompanied it, and one is not written here on its
+behalf — a ledger whose whole purpose is provenance is worth less, not
+more, with a signature nobody actually gave. Codex can sign it properly in
+a later session. What follows is the change as read from the diff.
+
+`LiveTreasureEntitySource` gained `on_loose_appeared`, and `phase1b_app`
+wires it to speak "<label> dropped on the floor." as a WARNING-class,
+non-interrupting event. Announcements fire only on a false-to-true
+transition of a loose pickup's live visibility, tracked per record identity
+in `_loose_visibility`.
+
+The care in it is in what it refuses to announce. Entering a room, starting
+the companion, or waiting for the actor pool to populate would each
+otherwise read as a fresh drop, so the first observation in a room is taken
+as a silent baseline (`_notification_primed`), and priming itself waits
+until at least one loose record has a live actor — the treasure table
+becomes readable during a room transition before its runtime actors exist.
+
+`SPECIAL_LOOSE_LABELS = {0x1FA: "ID Card"}` gives one item id its own label
+in place of the generic "Item".
+
+**A correction, recorded because the first note written here got it
+wrong.** This was initially set down as a hardcoded id violating the
+project's no-hardcoding rule. It is not that. That rule is about patching
+bad or missing game data with invented constants; `record.item_id` is read
+live from the game's own treasure table (`memory.u32(address + 0x0C)`) and
+`0x1FA` merely *selects* on it. Nothing is fabricated.
+
+What it actually is, is a deliberate exception to a **policy**: this module
+labels pickups by object class and refuses to resolve their contents, on
+the grounds that the game itself does not reveal what a sparkle holds until
+it is taken, so naming it would both invent information the player could
+not otherwise have and spoil it.
+
+The reason for the exception, from the project owner: they were lost in the
+Cipher lab dungeon, where progress depends on picking a keycard up off the
+floor, and every ground pickup announces as "Item". The information-hiding
+policy is right for an ordinary pickup and wrong for a progression gate —
+a sighted player is not meaningfully spoiled by a keycard they can see
+glinting in the one room they are stuck in, and a blind player without it
+has no way to tell which sparkle ends the dead end.
+
+So the open question this leaves is not "remove the constant" but "which
+pickups are gates". One id is a point fix for a class of barrier: every
+other progression-critical ground item in the game has the same problem and
+will need its own entry, one at a time.
+
+**The general answer already exists in this project and is derived, not
+invented.** `item_database.py` carries `BAG_SLOT_KEY_ITEMS = 5`, taken from
+static disassembly of `heroItemGetItemKindToItemAryPtr`'s dispatch table
+and cross-confirmed against Pokemon-XD-Code's `XGBagSlots` enum, and every
+item record's own `+0x0` byte holds that kind. Its comment even says it is
+"kept only for callers that want to sanity-check a record's kind against
+the category they expect it in" — this is such a caller. Looking
+`record.item_id` up in the item database and testing `kind ==
+BAG_SLOT_KEY_ITEMS` would name every key item on the floor, in XD and in
+XG, from the game's own tables, with no id list to maintain.
+
+That is a player-facing policy change — it decides what a whole class of
+pickup announces as — so it is recorded here rather than done unasked. It
+is also the shape the project's own rules prefer: derive the category from
+the image in hand instead of enumerating ids that a hack may renumber.
+
+Committed by Claude at the owner's instruction, with the suite green at its
+known baseline. Not live-tested: whether the announcement fires on a real
+in-room drop, and only then, is an open live question.

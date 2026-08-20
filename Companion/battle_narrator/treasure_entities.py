@@ -97,6 +97,9 @@ TREASURE_ORDINAL_MASK = 0x1FF
 BOX_LABEL = "Item box"
 OPENED_BOX_LABEL = "Opened item box"
 LOOSE_LABEL = "Item"
+SPECIAL_LOOSE_LABELS = {
+    0x1FA: "ID Card",
+}
 """Accessibility-owned object-class labels, which the audit brief permits.
 Deliberately NOT the resolved item name: the game does not reveal what a
 box or a ground sparkle contains until it is taken, so naming it would be
@@ -200,7 +203,8 @@ class TreasureState:
     @property
     def label(self):
         if not self.record.is_box:
-            return LOOSE_LABEL
+            return SPECIAL_LOOSE_LABELS.get(
+                self.record.item_id, LOOSE_LABEL)
         return OPENED_BOX_LABEL if self.collected else BOX_LABEL
 
 
@@ -262,15 +266,58 @@ class LiveTreasureEntitySource:
     reload."""
 
     def __init__(self, memory, profile, flag_reader=None, runtime=None,
-                 logger=None):
+                 logger=None, on_loose_appeared=None):
         self.memory, self.profile = memory, profile
         self.flag_reader = flag_reader
         self.runtime = runtime
         self.logger = logger
+        self.on_loose_appeared = on_loose_appeared
         self.pose_source = NPCMemorySource(memory, profile)
         self._room_id = None
         self._records = ()
         self._surveyed = False
+        self._loose_visibility = {}
+        self._notification_room = None
+        self._notification_primed = False
+
+    def _notify_loose_appearances(self, states, room_id):
+        """Report live loose pickups only on a false-to-true transition.
+
+        The first observation is a silent baseline.  This prevents entering
+        a room, starting the companion, or waiting for its actor pool to load
+        from being misreported as a new drop.
+        """
+        if room_id != self._notification_room:
+            self._notification_room = room_id
+            self._notification_primed = False
+
+        loose = [state for state in states if not state.record.is_box]
+        if not self._notification_primed:
+            # During a room transition the treasure table becomes readable
+            # before its runtime actors exist.  Wait for the actor pool, then
+            # take one silent live baseline; actor creation at room load is
+            # not an in-room item drop.
+            if loose and not any(state.actor is not None for state in loose):
+                return
+            for state in loose:
+                self._loose_visibility[state.record.identity] = (
+                    state.actor is not None and state.interactable)
+            self._notification_primed = True
+            return
+
+        for state in loose:
+            identity = state.record.identity
+            present = state.actor is not None and state.interactable
+            previous = self._loose_visibility.get(identity)
+            self._loose_visibility[identity] = present
+            if previous is False and present:
+                if self.logger is not None:
+                    self.logger.info(
+                        "TREASURE APPEARED idx=%d item=0x%X label=%r",
+                        state.record.table_index, state.record.item_id,
+                        state.label)
+                if self.on_loose_appeared is not None:
+                    self.on_loose_appeared(state)
 
     def player_pose(self):
         return self.pose_source.player_pose()
@@ -435,6 +482,7 @@ class LiveTreasureEntitySource:
         result = []
         states = self.states(room_id)
         self.survey(states, room_id)
+        self._notify_loose_appearances(states, room_id)
         for state in states:
             if not state.exists:
                 if self.logger is not None:

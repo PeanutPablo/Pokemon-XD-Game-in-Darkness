@@ -272,6 +272,53 @@ class LooseItemTests(unittest.TestCase):
         live, _ = source([Record(kind=2)])
         self.assertEqual(live.entities()[0].label, LOOSE_LABEL)
 
+    def test_only_the_known_story_pickup_is_labelled_id_card(self):
+        id_card, _ = source([Record(kind=2, item_id=0x1FA)])
+        nearby_item, _ = source([Record(kind=2, item_id=0x1F9)])
+        self.assertEqual(id_card.entities()[0].label, "ID Card")
+        self.assertEqual(nearby_item.entities()[0].label, LOOSE_LABEL)
+
+    def test_visible_loose_item_at_start_is_a_silent_baseline(self):
+        appeared = []
+        memory, _ = build([Record(kind=2, item_id=0x1FA)])
+        live = LiveTreasureEntitySource(
+            memory, XD_US_REV0, Flags(),
+            runtime=Runtime([Actor(TREASURE_RESID_MARKER | 0)]),
+            on_loose_appeared=appeared.append)
+        live.pose_source = FakePose()
+        live.entities()
+        live.entities()
+        self.assertEqual(appeared, [])
+
+    def test_actor_pool_loading_is_a_silent_baseline(self):
+        appeared = []
+        memory, _ = build([Record(kind=2, item_id=0x1FA)])
+        runtime = Runtime()
+        live = LiveTreasureEntitySource(
+            memory, XD_US_REV0, Flags(), runtime=runtime,
+            on_loose_appeared=appeared.append)
+        live.pose_source = FakePose()
+        live.entities()
+        runtime._actors = (Actor(TREASURE_RESID_MARKER | 0),)
+        live.entities()
+        self.assertEqual(appeared, [])
+
+    def test_hidden_to_visible_loose_item_notifies_once(self):
+        appeared = []
+        actor = Actor(TREASURE_RESID_MARKER | 0, displayed=False)
+        memory, _ = build([Record(kind=2, item_id=0x1FA)])
+        runtime = Runtime([actor])
+        live = LiveTreasureEntitySource(
+            memory, XD_US_REV0, Flags(), runtime=runtime,
+            on_loose_appeared=appeared.append)
+        live.pose_source = FakePose()
+        self.assertEqual(live.entities(), [])
+        actor.displayed = True
+        self.assertEqual(live.entities()[0].label, "ID Card")
+        live.entities()
+        self.assertEqual(len(appeared), 1)
+        self.assertEqual(appeared[0].label, "ID Card")
+
     def test_a_script_hidden_live_item_is_absent(self):
         live, _ = source(
             [Record(kind=2)],

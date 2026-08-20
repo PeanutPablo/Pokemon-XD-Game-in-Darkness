@@ -1325,7 +1325,11 @@ def run(argv=None, backend=dme, speech_backend=tolk):
                         connection.memory, XD_US_REV0, flag_reader,
                         runtime=PeopleRuntimeSource(
                             connection.memory, XD_US_REV0),
-                        logger=logger),
+                        logger=logger,
+                        on_loose_appeared=lambda state: speech.emit(
+                            SpeechEventClass.WARNING,
+                            f"{state.label} dropped on the floor.",
+                            interrupt=False)),
                     category="item"),
                 # POKE MART BEACON DISABLED 2026-08-18, same request and
                 # same reason as the role titles above. The predicate was
