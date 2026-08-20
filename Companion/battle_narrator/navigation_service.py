@@ -843,6 +843,19 @@ class NavigationService:
             # the 2026-08-17 parts-shop route looked completely healthy in
             # the log right up to the room change.
             avoided_triggers=len(avoid_segments),
+            # Whether this route stops short, and by how much. Computed
+            # since partial guidance was introduced and stored on the
+            # route, but only ever SPOKEN -- so a player reporting "it says
+            # it cannot reach any exit" could be confirmed from the log
+            # (98 of them in one log, mostly elevators and warps) without
+            # the log saying whether the gap was horizontal or vertical.
+            # Those are different bugs: a vertical shortfall means the
+            # destination is on a level this room's walk model does not
+            # connect, a horizontal one means the walk graph is refusing
+            # ground the player can actually cross.
+            partial=bool(stats.get("partial_guidance")),
+            partial_shortfall=round(stats.get("partial_shortfall") or 0.0, 2),
+            partial_vertical=round(stats.get("partial_vertical") or 0.0, 2),
             **self._trace_projections(geometry, destination_position))
         self._route = _Route(
             floor_id=floor_id, geometry=geometry, flow_field=field,

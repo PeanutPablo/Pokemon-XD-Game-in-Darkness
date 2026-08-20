@@ -6,6 +6,97 @@ Per [ACCESSIBILITY_MASTER_PLAN.md](ACCESSIBILITY_MASTER_PLAN.md)'s work-in-progr
 
 ---
 
+## Open finding — autowalk says it cannot reach exits (2026-08-19)
+
+**Reported by the project owner: "the autowalk feature says it can't go to
+any exit when I'm pretty sure that should be false." Confirmed real from
+the log. NOT fixed — the cause is in the walk model, which is the area with
+two red tests and three documented design reversals, and guessing there
+sends a blind player's character into a wall.**
+
+### It is real, and it is mostly exits
+
+`Companion/logs/battle_narrator_phase1b.log` carries **98** occurrences of
+"Cannot reach it; walking to the closest point I can reach". Pairing each
+one with the "Autowalk on, X" that preceded it:
+
+| Target | Count |
+|---|---|
+| `Elevator to lab, basement` / `basement level N` | 31 |
+| warps (`to lab, basement level N A/B`, `to Pokemon HQ Lab`, ...) | 21 |
+| `Item box` | 13 |
+| `Door` | 7 |
+| NPCs (Naps, John, Max, Lily) | 11 |
+
+So the owner's reading is right: it is exits far more than anything else.
+
+Note what this is NOT. Hard refusals — `unroutable
+confidence=DIRECT_FALLBACK`, where autowalk will not move at all — number
+**5** in the whole log. The common case is PARTIAL: it *does* walk, while
+announcing that it cannot reach the thing.
+
+### The shortfalls are real, not an over-cautious message
+
+Spoken shortfalls: 8, 46, 56, 61, 71, 77, 88, 121 units, against an
+arrival distance of 4.0. The route genuinely stops a long way short. This
+is not a threshold that needs loosening.
+
+### Target projection is NOT the cause
+
+Worth stating plainly, because `target_projection` appears 1,104 times in
+the log and looks like the answer. It is not. Every route build in the
+owner's 2026-08-19 session reports:
+
+    room=D1_labo_B3 passability=swept radius=3.50 nodes=207
+    rejected_edges=129 rejected_nodes=0 target_projected=True
+    target_projection_offset=0.0 reseeded=False relocated=170
+
+`target_projected=True` with `offset=0.0` — the destination projects onto
+the walk mesh cleanly. `radius=3.50` also confirms this is a current build,
+not the stale-process trap.
+
+What stands out instead is `relocated=170` of `nodes=207` — **82% to 98% of
+nodes are relocated on every build**, across every room in that session
+(D1_labo_B1, B2, B3), together with a large `rejected_edges`.
+
+**A correction, recorded so it is not repeated:** a first pass at this
+computed `rejected_edges / nodes` and reported it as "percentage of edges
+rejected". That is wrong — a graph has many more edges than nodes, so the
+ratio is edges-per-node and exceeds 100% routinely (M6_tower_top averages
+77). The log does not carry a total edge count, so **what fraction of edges
+are rejected is currently unknown**, and no conclusion should be drawn from
+that ratio.
+
+### What was changed
+
+Only observability. `partial_shortfall` and `partial_vertical` were
+computed, stored on the route and spoken, but never logged — so a report
+like this one could be confirmed without the log saying whether the gap was
+**horizontal or vertical**, and those are different bugs:
+
+- **vertical** — the destination sits on a level this room's walk model
+  does not connect, and refusing may be correct (you may genuinely need to
+  ride the elevator rather than walk to it)
+- **horizontal** — the walk graph is refusing ground the player can
+  actually cross, and the passability model is too strict
+
+The route build line now carries `partial=`, `partial_shortfall=` and
+`partial_vertical=`.
+
+### Next step, before any fix
+
+One short play session in the lab basement, walking to the elevator and to
+a couple of warps. Then read `partial_vertical` out of the route build
+lines. That single number decides which of the two bugs above this is, and
+it cannot be inferred from anything already recorded.
+
+Also check first whether the `DestinationProjectionTests` work is still in
+flight — those two failures are in the same walk model, and this project
+has already reversed its position on cross-level destinations twice
+(2026-08-12 refuse, 2026-08-13 partial-instead-of-refuse).
+
+---
+
 ## Open finding — teleport lands wrong, and used to claim it had not (2026-08-19)
 
 **Reported by the project owner: "teleporting doesn't work all the time."
