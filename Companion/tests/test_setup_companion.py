@@ -425,5 +425,57 @@ class DamagedInstallationTests(unittest.TestCase):
         self.assertIn("fresh folder", said)
 
 
+class StopExistingCompanionTests(unittest.TestCase):
+    """The launcher clears the ground before it starts.
+
+    Two problems this removes. Running a second companion beside a first
+    is the most confusing state this project produces -- every line spoken
+    twice, over itself, with no way to see that two processes exist. And a
+    companion holding its log file open is exactly what turns an update
+    into a half-deleted installation, which happened on 2026-08-20.
+
+    The narrator's named mutex already stops a SECOND one doing work, but
+    that leaves the first -- possibly running stale code from before an
+    update -- as the one still talking. So the launcher ends it rather
+    than hoping."""
+
+    def setUp(self):
+        import launch_accessible
+        self.launcher = launch_accessible
+
+    def test_it_matches_only_processes_inside_the_given_folder(self):
+        """Matched on the executable's own path, so it can never reach a
+        Python the player is using for something of their own."""
+        self.assertEqual(
+            self.launcher._running_pids_from(
+                Path("C:/definitely/not/here/at/all")), [])
+
+    def test_it_never_returns_its_own_pid(self):
+        """The launcher runs from the folder it is clearing, so excluding
+        itself is what stops it terminating itself before it can start
+        anything.
+
+        Written the other way round first -- asserting the running
+        interpreter WOULD be found -- which failed, correctly. That is the
+        behaviour, not a gap in it."""
+        import os
+        found = self.launcher._running_pids_from(
+            Path(sys.executable).parent)
+        self.assertNotIn(os.getpid(), found)
+
+    def test_it_returns_pids_for_a_folder_that_has_them(self):
+        """Everything else running from this interpreter's own directory
+        is still fair game -- only self is excluded."""
+        found = self.launcher._running_pids_from(
+            Path(sys.executable).parent)
+        self.assertIsInstance(found, list)
+        self.assertTrue(all(isinstance(pid, int) for pid in found))
+
+    def test_nothing_running_stops_nothing(self):
+        with mock.patch.object(
+                self.launcher, "_running_pids_from", return_value=[]):
+            self.assertEqual(self.launcher.stop_existing_companion(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

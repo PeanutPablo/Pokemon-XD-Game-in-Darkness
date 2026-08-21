@@ -13,8 +13,10 @@ game boots. `run_accessible_pokemon_xd.py` holds a named mutex, so a
 second launch attaches nothing and speaks nothing rather than doubling
 every line."""
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 COMPANION = Path(__file__).resolve().parent
@@ -48,6 +50,109 @@ def fail(message):
     return 1
 
 
+def _running_pids_from(folder):
+    """PIDs of processes whose executable lives under `folder`.
+
+    Uses the ToolHelp snapshot API directly rather than shelling out to
+    PowerShell or `wmic`: `wmic` is gone from current Windows, and starting
+    a PowerShell for this would cost most of a second and flash a console
+    at a player who cannot see it dismissed.
+
+    Matched on the executable's own path, not on a command line or a
+    window title. Anything running out of this installation's own folder
+    belongs to this installation -- there is nothing else in there -- and
+    that keeps the test from ever reaching a Python the player is using
+    for something of their own."""
+    import ctypes
+    import ctypes.wintypes as wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    INVALID_HANDLE = ctypes.c_void_p(-1).value
+
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_char * 260),
+        ]
+
+    kernel32 = ctypes.windll.kernel32
+    folder = str(folder).casefold()
+    found = []
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE:
+        return found
+    try:
+        entry = PROCESSENTRY32()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+            return found
+        while True:
+            pid = entry.th32ProcessID
+            if pid not in (0, os.getpid()):
+                handle = kernel32.OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                if handle:
+                    try:
+                        size = wintypes.DWORD(32768)
+                        buffer = ctypes.create_unicode_buffer(size.value)
+                        if kernel32.QueryFullProcessImageNameW(
+                                handle, 0, buffer, ctypes.byref(size)):
+                            if buffer.value.casefold().startswith(folder):
+                                found.append(pid)
+                    finally:
+                        kernel32.CloseHandle(handle)
+            if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return found
+
+
+def stop_existing_companion():
+    """End any companion already running out of this folder, and wait.
+
+    Starting a second one on top of a first is the single most confusing
+    state this project produces: every line is spoken twice, over itself,
+    and the player has no way to see that two processes exist. The
+    narrator's named mutex already stops the second one doing any work,
+    but that leaves the FIRST one -- possibly running stale code from
+    before an update -- as the one still talking.
+
+    So the launcher clears the ground instead of hoping. It is also what
+    makes replacing this folder safe: a companion holding its log open is
+    what turns an update into a half-deleted installation.
+
+    Returns how many it stopped. Failures are ignored deliberately -- a
+    process that will not die must not stop the player launching, and the
+    mutex still prevents the doubled speech that would matter."""
+    import ctypes
+
+    stopped = 0
+    for pid in _running_pids_from(RELEASE):
+        handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
+        if not handle:
+            continue
+        try:
+            if ctypes.windll.kernel32.TerminateProcess(handle, 0):
+                stopped += 1
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    if stopped:
+        # Terminate is asynchronous; the handles it held, the log file
+        # above all, are not released the instant it returns.
+        time.sleep(0.5)
+    return stopped
+
+
 ESSENTIAL_RELEASE_FILES = (
     "Setup.cmd",
     "Companion/run_accessible_pokemon_xd.py",
@@ -66,7 +171,7 @@ launcher, the interpreter and the sounds gone.
 
 It cost a real session here on 2026-08-20: a rebuild into a folder that
 still had a companion running in it removed everything it could, and the
-next launch did nothing at all because `Launch Accessible XD.cmd` was one
+next launch did nothing at all because `Access Layer.cmd` was one
 of the casualties.
 
 Without this check the failure reads as "The Python environment is
@@ -151,6 +256,15 @@ def main():
     if pythonw is None:
         return fail(
             "The Python environment is missing. Run Setup.cmd to build it.")
+
+    # Before anything starts, not after: a companion left over from an
+    # earlier session is stale code holding the log open, and starting a
+    # second one beside it is how everything comes out twice.
+    stopped = stop_existing_companion()
+    if stopped:
+        print(f"Closed {stopped} companion "
+              f"{'process' if stopped == 1 else 'processes'} still running "
+              f"from an earlier session.")
 
     subprocess.Popen(
         [str(pythonw), str(NARRATOR)],

@@ -112,7 +112,7 @@ Step 2. Run Setup.cmd
         Setup installs nothing and does not need an internet
         connection.
 
-Step 3. Run Launch Accessible XD.cmd to play.
+Step 3. Run Access Layer.cmd to play.
 
 If you move Dolphin or your game image later, run Setup.cmd again.
 
@@ -140,16 +140,23 @@ You can also do that step on its own:
 SECTION 4. STARTING THE GAME
 -----------------------------------------------------------
 
-Run Launch Accessible XD.cmd
+Run Access Layer.cmd
 
 It starts the companion first and then Dolphin, so the title screen
 is already being read by the time the game boots.
 
-Only run one copy at a time. If everything is spoken twice, an
-older copy is still running. Close it and start again.
+Access Layer.cmd is the file you run every time you play. It
+starts the access layer and Dolphin together.
 
-When you close Dolphin, the companion stops on its own. It waits a
-minute first, in case you are only restarting Dolphin, then says
+You do not need to worry about running it twice. Before it starts,
+it closes any access layer still running from an earlier session,
+so you end up with one rather than two talking over each other.
+That also means a new version can replace this folder cleanly: a
+companion holding its log file open is what turns an update into a
+half-deleted copy.
+
+When you close Dolphin, the access layer stops on its own. It waits
+a minute first, in case you are only restarting Dolphin, then says
 "Dolphin has closed. Stopping the companion." and exits. You are
 not left with something running in the background that you cannot
 see.

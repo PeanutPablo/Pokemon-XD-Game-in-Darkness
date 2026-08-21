@@ -52,12 +52,22 @@ start:
    asks you to confirm — press Enter, or pick a number from a list. No
    typing paths. It then reads the data it needs from your game image,
    which takes about a minute.
-3. Run **`Launch Accessible XD.cmd`** to play.
+3. Run **`Access Layer.cmd`** to play.
 
-**Closing Dolphin stops the companion.** Once Dolphin has been gone for a
-minute it says "Dolphin has closed. Stopping the companion." and exits, so
-you are not left with an invisible process still running. Restarting
-Dolphin within that minute keeps the session going.
+**`Access Layer.cmd` is the file you run every time you play.** It starts
+the access layer and Dolphin together.
+
+Two things it does so you never end up with stray copies running:
+
+- **It closes any access layer left over from an earlier session before
+  starting.** Double-click it twice, or run it after a crash, and you get
+  one companion rather than two talking over each other. It also means an
+  update can replace this folder cleanly — a companion holding its log
+  open is what turns an update into a half-deleted installation.
+- **Closing Dolphin stops it.** Once Dolphin has been gone a minute it
+  says "Dolphin has closed. Stopping the companion." and exits, so nothing
+  invisible is left running. Restart Dolphin within that minute and your
+  session carries on.
 
 If you use portable Dolphin, extracting this **inside or beside your
 Dolphin folder** means setup finds it immediately.

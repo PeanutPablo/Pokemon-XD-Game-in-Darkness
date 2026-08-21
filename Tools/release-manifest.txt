@@ -23,7 +23,7 @@ Companion/launch_accessible.py
 Companion/check_game_compatibility.py
 Companion/check_image_compatibility.py
 Setup.cmd
-Launch Accessible XD.cmd
+Access Layer.cmd
 
 # The bundled interpreter, staged by Tools/build_runtime.py rather than
 # copied from the checkout: CPython's official embeddable package for

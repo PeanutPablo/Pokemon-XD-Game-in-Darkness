@@ -54,7 +54,7 @@ if (Test-Path -LiteralPath $stage) {
     # Companion\logs present, and the launcher, the interpreter and the
     # sounds all gone. On 2026-08-20 that destroyed a copy the project
     # owner was actively testing from, and the next launch did nothing at
-    # all because Launch Accessible XD.cmd was one of the casualties.
+    # all because Access Layer.cmd was one of the casualties.
     #
     # Checked by process path rather than by trying and catching, because
     # by the time the exception arrives the damage is already done.
@@ -115,7 +115,7 @@ $approvedFiles = @(
     # having to get as far as a running Dolphin first.
     'Companion/check_image_compatibility.py',
     'Setup.cmd',
-    'Launch Accessible XD.cmd',
+    'Access Layer.cmd',
     'Companion/requirements.txt',
     'Companion/assets/room_ids.json',
     # Generated classification assets. Both are DERIVED from the extracted

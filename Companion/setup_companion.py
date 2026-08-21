@@ -466,7 +466,7 @@ def main():
     write_settings(dolphin, disc)
     print(f"  Written to {SETTINGS.name}.")
     print()
-    print("Setup finished. Start the game with 'Launch Accessible XD.cmd'.")
+    print("Setup finished. Start the game with 'Access Layer.cmd'.")
     print("If you move Dolphin or your game image later, run Setup.cmd again.")
     return 0
 
