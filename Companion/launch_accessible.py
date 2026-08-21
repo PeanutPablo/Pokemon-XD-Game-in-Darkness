@@ -117,6 +117,17 @@ def _running_pids_from(folder):
     return found
 
 
+def dolphin_already_running(dolphin):
+    """Is the Dolphin Setup recorded already open?
+
+    Matched on the exact executable, not on its folder: a Dolphin install
+    also ships `DolphinTool.exe` and `Updater.exe`, and `bootstrap_game_
+    data.py` runs DolphinTool to convert compressed disc images. Matching
+    the folder would call that a running Dolphin and refuse to boot the
+    game for a reason the player could never guess."""
+    return bool(_running_pids_from(dolphin))
+
+
 def stop_existing_companion():
     """End any companion already running out of this folder, and wait.
 
@@ -270,6 +281,27 @@ def main():
         [str(pythonw), str(NARRATOR)],
         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
         cwd=str(COMPANION))
+    if dolphin_already_running(dolphin):
+        # Deliberately NOT starting a second one, and deliberately not
+        # closing the first.
+        #
+        # Starting a second is what made this look broken: Dolphin does not
+        # open twice, so the `-b -e` that boots the disc is simply
+        # discarded, and the instance already open stays sitting at its
+        # game list. The companion then waits for a game that nothing is
+        # going to boot, and the player is told nothing at all.
+        #
+        # Closing the first is worse. It may have a game running with
+        # progress in it, and this cannot tell from out here -- reading
+        # whether a game is booted needs the memory backend the narrator
+        # owns. Throwing away someone's unsaved play to save them a
+        # keystroke is not a trade worth making.
+        print("Dolphin is already open, so the game was not booted for you.")
+        print("Start your game in the Dolphin window that is already open.")
+        print("The companion is running and will begin speaking as soon as "
+              "the game loads.")
+        return 0
+
     subprocess.Popen([str(dolphin), "-b", "-e", str(game)])
     return 0
 

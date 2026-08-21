@@ -471,6 +471,32 @@ class StopExistingCompanionTests(unittest.TestCase):
         self.assertIsInstance(found, list)
         self.assertTrue(all(isinstance(pid, int) for pid in found))
 
+    def test_an_already_open_dolphin_is_detected(self):
+        """The case that made this look broken: Dolphin open at its game
+        list, the launcher spawning a second one whose -b -e is discarded,
+        and the companion waiting for a game nothing will boot."""
+        with mock.patch.object(
+                self.launcher, "_running_pids_from", return_value=[4242]):
+            self.assertTrue(
+                self.launcher.dolphin_already_running(Path("D:/x/Dolphin.exe")))
+
+    def test_a_closed_dolphin_is_not_detected(self):
+        with mock.patch.object(
+                self.launcher, "_running_pids_from", return_value=[]):
+            self.assertFalse(
+                self.launcher.dolphin_already_running(Path("D:/x/Dolphin.exe")))
+
+    def test_detection_matches_the_executable_not_its_folder(self):
+        """A Dolphin folder also holds DolphinTool.exe, which bootstrap
+        runs to convert compressed images. Folder matching would call that
+        a running Dolphin and refuse to boot the game."""
+        seen = []
+        with mock.patch.object(
+                self.launcher, "_running_pids_from",
+                side_effect=lambda target: seen.append(target) or []):
+            self.launcher.dolphin_already_running(Path("D:/x/Dolphin.exe"))
+        self.assertEqual(seen, [Path("D:/x/Dolphin.exe")])
+
     def test_nothing_running_stops_nothing(self):
         with mock.patch.object(
                 self.launcher, "_running_pids_from", return_value=[]):

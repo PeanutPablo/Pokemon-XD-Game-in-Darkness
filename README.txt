@@ -146,7 +146,13 @@ It starts the companion first and then Dolphin, so the title screen
 is already being read by the time the game boots.
 
 Access Layer.cmd is the file you run every time you play. It
-starts the access layer and Dolphin together.
+starts the access layer and Dolphin together, and boots your game.
+
+Let it open Dolphin for you. If you open Dolphin yourself first,
+it cannot boot the game for you, because Dolphin will not open
+twice. It tells you so, and asks you to start the game in the
+window you already have open. It begins speaking once the game
+loads.
 
 You do not need to worry about running it twice. Before it starts,
 it closes any access layer still running from an earlier session,
