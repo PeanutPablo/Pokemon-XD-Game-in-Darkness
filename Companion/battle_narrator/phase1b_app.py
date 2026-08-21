@@ -1417,15 +1417,31 @@ def run(argv=None, backend=dme, speech_backend=tolk):
                 connection.memory, XD_US_REV0, overworld_entity_sources(),
                 speech, logger)
 
+        controller = None
+
         def room_change_factory():
             # Uses `room_names` -- the same player-facing names entity-nav
             # already speaks for warps/doors/elevators -- so a door
             # announced as "Mt. Battle Pokemon Center, 1st floor" leads to a
             # room that calls itself exactly that. See room_announcer.py for
             # why this no longer lives inside the (muted) beacon reader.
+            # The title line names whichever game is running, derived
+            # from the abilities table's shape. Passed as a callable so it
+            # is read on the title screen itself, not at construction --
+            # the reader is built before a game is necessarily booted.
+            def title_line():
+                reader = getattr(controller, "menu_reader", None)
+                if reader is None:
+                    return None
+                try:
+                    return reader.title_label()
+                except Exception as problem:
+                    logger.debug("TITLE line unavailable: %s", problem)
+                    return None
+
             return RoomChangeReader(
                 NPCMemorySource(connection.memory, XD_US_REV0),
-                room_names, speech, logger)
+                room_names, speech, logger, title_provider=title_line)
 
         def audio_guide_factory(entity_nav_reader):
             sound_dir = resolve_guide_sound_dir(base)
@@ -1635,7 +1651,7 @@ def run(argv=None, backend=dme, speech_backend=tolk):
                     "The settings menu could not start. Your saved settings "
                     "are still in effect.", interrupt=False)
 
-        LifecycleController(
+        controller = LifecycleController(
             connection,
             tasks_factory,
             narrator_factory,
@@ -1701,7 +1717,8 @@ def run(argv=None, backend=dme, speech_backend=tolk):
             ),
             settings=settings_store,
             settings_menu=settings_menu,
-        ).run()
+        )
+        controller.run()
     except UnsupportedProfile as exc:
         logger.error(str(exc))
         if speaker.loaded:

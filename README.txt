@@ -112,7 +112,7 @@ Step 2. Run Setup.cmd
         Setup installs nothing and does not need an internet
         connection.
 
-Step 3. Run Access Layer.cmd to play.
+Step 3. Run Play.cmd to play.
 
 If you move Dolphin or your game image later, run Setup.cmd again.
 
@@ -140,12 +140,12 @@ You can also do that step on its own:
 SECTION 4. STARTING THE GAME
 -----------------------------------------------------------
 
-Run Access Layer.cmd
+Run Play.cmd
 
 It starts the companion first and then Dolphin, so the title screen
 is already being read by the time the game boots.
 
-Access Layer.cmd is the file you run every time you play. It
+Play.cmd is the file you run every time you play. It
 starts the access layer and Dolphin together, and boots your game.
 
 Let it open Dolphin for you. If you open Dolphin yourself first,

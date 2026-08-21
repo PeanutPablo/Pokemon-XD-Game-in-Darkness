@@ -897,6 +897,29 @@ class SpatialWavePlayer:
         self._channels = []
 
 
+TITLE_SCREEN_FLOOR_ID = 0x384
+"""The title screen. Named because it is the one boot screen with
+something worth saying on it -- which game this is, and how to start."""
+
+BOOT_SCREEN_FLOOR_IDS = frozenset({
+    0,                      # before any map is loaded
+    0x399,                  # "pokemon logo"
+    0x39A,                  # "genius logo"
+    TITLE_SCREEN_FLOOR_ID,
+})
+"""Screens the game passes through before play begins.
+
+None of them is a place. Announcing them as maps produced "Map: pokemon
+logo.", "Map: genius logo." and "Map: title." over the top of the health
+notice and the title music, each one also repeated by the room announcer
+-- so the first thing a new player heard was six sentences naming
+publisher logos.
+
+The room announcer still speaks for the title screen, because there the
+name is replaced by something useful. The map line is suppressed for all
+of them: it duplicates the room announcement even in ordinary rooms, and
+on these screens it duplicates it with a word that means nothing."""
+
 NO_ROOM_FLOOR_ID = 0
 """Floor 0 is not a room. It is what the floor ID reads as before any map
 is loaded -- the health-and-safety notice and the title screen.
@@ -1010,7 +1033,7 @@ class NPCSoundReader:
         floor_id = self.source.current_floor_id()
         if floor_id == self.announced_floor_id:
             return
-        if floor_id == NO_ROOM_FLOOR_ID:
+        if floor_id in BOOT_SCREEN_FLOOR_IDS:
             # Remembered, not just skipped, so entering the first real room
             # still announces rather than being swallowed as "no change".
             self.announced_floor_id = floor_id

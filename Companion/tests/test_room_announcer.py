@@ -176,3 +176,66 @@ class BootScreenSilenceTests(unittest.TestCase):
         floor.floor_id = 0x2A
         reader.poll_once()
         self.assertEqual(speech.calls, ["Pyrite Town."])
+
+
+class TitleScreenTests(unittest.TestCase):
+    """The title screen names the game, not the room.
+
+    Live on 2026-08-20 the boot sequence announced "Map: pokemon logo.",
+    "pokemon logo.", "Map: genius logo.", "genius logo.", "title." and
+    "Map: title." -- six sentences naming publisher logos, each screen
+    said twice, before the player had heard anything useful. The menu
+    reader's own title focus produced nothing at all across that whole
+    boot, which is why the announcement is made here instead."""
+
+    def test_the_title_screen_says_the_game_and_how_to_start(self):
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x384), {0x384: "title"}, speech, _logger(),
+            title_provider=lambda: "Pokemon XG: NeXt Gen. Press A to start.")
+        reader.poll_once()
+        self.assertEqual(
+            speech.calls, ["Pokemon XG: NeXt Gen. Press A to start."])
+
+    def test_it_never_says_the_word_title(self):
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x384), {0x384: "title"}, speech, _logger(),
+            title_provider=lambda: "Pokemon XD: Gale of Darkness. Press A to start.")
+        reader.poll_once()
+        self.assertNotIn("title", " ".join(speech.calls).lower()[:20])
+
+    def test_without_a_provider_it_says_nothing_rather_than_title(self):
+        """Better silent than announcing a room called "title"."""
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x384), {0x384: "title"}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, [])
+
+    def test_a_provider_that_fails_costs_the_line_not_the_reader(self):
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x384), {0x384: "title"}, speech, _logger(),
+            title_provider=lambda: None)
+        reader.poll_once()
+        self.assertEqual(speech.calls, [])
+
+    def test_the_logo_screens_are_silent(self):
+        for floor_id, name in ((0x399, "pokemon logo"), (0x39A, "genius logo")):
+            speech = Speech()
+            reader = RoomChangeReader(
+                FloorSource(floor_id), {floor_id: name}, speech, _logger())
+            reader.poll_once()
+            self.assertEqual(speech.calls, [], f"{name} was announced")
+
+    def test_a_real_room_after_the_title_still_announces(self):
+        floor = FloorSource(0x384)
+        speech = Speech()
+        reader = RoomChangeReader(
+            floor, {0x384: "title", 0x2A: "Pyrite Town"}, speech, _logger(),
+            title_provider=lambda: "Pokemon XD: Gale of Darkness. Press A to start.")
+        reader.poll_once()
+        floor.floor_id = 0x2A
+        reader.poll_once()
+        self.assertEqual(speech.calls[-1], "Pyrite Town.")

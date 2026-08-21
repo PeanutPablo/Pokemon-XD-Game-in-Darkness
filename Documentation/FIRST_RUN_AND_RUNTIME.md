@@ -32,7 +32,7 @@ packages, so a failure there was a wall of pip output about compilers.
 
 ## 2. What it is now
 
-    Extract the zip.  Run Setup.cmd.  Run Access Layer.cmd.
+    Extract the zip.  Run Setup.cmd.  Run Play.cmd.
 
 Setup asks no questions the player must answer from memory. It reports
 what it found and asks for confirmation:

@@ -1117,7 +1117,7 @@ class TitleMenuTests(unittest.TestCase):
         self.assertEqual(len(f.events.values), 1)
         self.assertEqual(
             f.events.values[0][1],
-            "Title screen. Pokemon XD: Gale of Darkness. Press A to start.",
+            "Pokemon XD: Gale of Darkness. Press A to start.",
         )
 
     def test_press_start_reannounces_after_screen_transition(self):

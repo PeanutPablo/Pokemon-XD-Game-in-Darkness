@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = (Get-Date -Format 'yyyy-MM-dd-HHmm'),
+    [string]$Version = '1.00-beta',
 
     # Skips staging the bundled interpreter. For a fast check of the code
     # side of a build only -- the archive it produces is NOT the one to
@@ -34,7 +34,7 @@ $releaseRoot = if ($OutputRoot) { $OutputRoot } else { Join-Path $workspace 'Acc
 # Outside the project, beside the releases: a ~10 MB download that would
 # otherwise be re-fetched on every build, and that must never be committed.
 $runtimeCache = Join-Path $workspace 'RuntimeCache'
-$packageName = "Pokemon-XG-Accessibility-$Version"
+$packageName = "Pokemon-XD-Game-in-Darkness-$Version"
 $stage = Join-Path $releaseRoot $packageName
 $archive = Join-Path $releaseRoot "$packageName.zip"
 
@@ -54,7 +54,7 @@ if (Test-Path -LiteralPath $stage) {
     # Companion\logs present, and the launcher, the interpreter and the
     # sounds all gone. On 2026-08-20 that destroyed a copy the project
     # owner was actively testing from, and the next launch did nothing at
-    # all because Access Layer.cmd was one of the casualties.
+    # all because Play.cmd was one of the casualties.
     #
     # Checked by process path rather than by trying and catching, because
     # by the time the exception arrives the damage is already done.
@@ -115,7 +115,7 @@ $approvedFiles = @(
     # having to get as far as a running Dolphin first.
     'Companion/check_image_compatibility.py',
     'Setup.cmd',
-    'Access Layer.cmd',
+    'Play.cmd',
     'Companion/requirements.txt',
     'Companion/assets/room_ids.json',
     # Generated classification assets. Both are DERIVED from the extracted

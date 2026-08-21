@@ -52,7 +52,7 @@ for the rule about promoting verified work into the default narrator.
 ```
 Setup.cmd ──▶ setup_companion.py ──▶ bootstrap_game_data.py ──▶ _dialogue_extraction/
                                                                 (local game data)
-Access Layer.cmd ──▶ launch_accessible.py ──┬──▶ run_accessible_pokemon_xd.py
+Play.cmd ──▶ launch_accessible.py ──┬──▶ run_accessible_pokemon_xd.py
                                                     │      └─▶ phase1b_app.run()
                                                     └──▶ Dolphin
 ```
@@ -300,7 +300,7 @@ The release is allowlist-built and contains **no game data of any kind**.
 | Find Dolphin and the player's game | `Companion/setup_discovery.py` |
 | First-run setup | `Setup.cmd` → `Companion/setup_companion.py` |
 | Generate game data from the player's own disc | `Companion/bootstrap_game_data.py` |
-| Launch | `Access Layer.cmd` → `Companion/launch_accessible.py` |
+| Launch | `Play.cmd` → `Companion/launch_accessible.py` |
 
 **First run, as of 2026-08-18: extract, `Setup.cmd`, `Launch Accessible
 XD.cmd`.** No Python to install — a release carries its own in `Runtime/`

@@ -22,14 +22,29 @@ disagree with the door the player had just walked through.
 
 Read-only: one floor-ID read per poll, nothing else.
 """
-from .npc_beacons import NO_ROOM_FLOOR_ID
+from .npc_beacons import BOOT_SCREEN_FLOOR_IDS, TITLE_SCREEN_FLOOR_ID
 from .speech import SpeechEventClass
 
 
 class RoomChangeReader:
-    def __init__(self, floor_source, room_names, speech, logger):
+    def __init__(self, floor_source, room_names, speech, logger,
+                 title_provider=None):
         self.floor_source = floor_source
         self.room_names = dict(room_names)
+        self.title_provider = title_provider
+        """Returns the title-screen line -- which game this is and how to
+        start it -- or None. Injected rather than built here because
+        naming the game means reading the abilities table's shape out of
+        the running code, which is `menus`' business and not this
+        module's.
+
+        The title screen is announced HERE rather than by the menu reader
+        because the menu reader's own title focus does not fire: across a
+        full live boot on 2026-08-20 it produced no title announcement at
+        all, while this reader correctly reported the room as "title".
+        Rather than leave the first screen of the game unnamed while that
+        is investigated, the announcement is made where it demonstrably
+        works."""
         self.speech = speech
         self.logger = logger
         self.announced_floor_id = None
@@ -49,11 +64,18 @@ class RoomChangeReader:
         if floor_id is None or floor_id == self.announced_floor_id:
             return
         self.announced_floor_id = floor_id
-        if floor_id == NO_ROOM_FLOOR_ID:
-            # The boot screens, not a room. Saying "Room 0" here talks over
-            # the health-and-safety notice with a name for a place that
-            # does not exist. Recorded as announced so the first real room
-            # is not then skipped as unchanged.
+        if floor_id == TITLE_SCREEN_FLOOR_ID:
+            title = self.title_provider() if self.title_provider else None
+            if title:
+                self.speech.emit(
+                    SpeechEventClass.ENTITY_NAV, title, deduplicate=False)
+                self.logger.info("TITLE SCREEN %r", title)
+            return
+        if floor_id in BOOT_SCREEN_FLOOR_IDS:
+            # Publisher logos and the pre-map state. Not places, and
+            # naming them talks over the health notice. Recorded as
+            # announced so the first real room is not skipped as
+            # unchanged.
             return
         name = self.room_names.get(floor_id)
         if not name:

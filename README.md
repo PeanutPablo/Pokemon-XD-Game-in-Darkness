@@ -52,7 +52,7 @@ start:
    asks you to confirm — press Enter, or pick a number from a list. No
    typing paths. It then reads the data it needs from your game image,
    which takes about a minute.
-3. Run **`Access Layer.cmd`** to play.
+3. Run **`Play.cmd`** to play.
 
 **Let it open Dolphin for you.** It starts Dolphin and boots your game
 together with the access layer. If you open Dolphin yourself first, it
@@ -60,7 +60,7 @@ cannot boot the game for you — Dolphin will not open twice — so it tells
 you to start the game in the window you already have open, and begins
 speaking once it loads.
 
-**`Access Layer.cmd` is the file you run every time you play.** It starts
+**`Play.cmd` is the file you run every time you play.** It starts
 the access layer and Dolphin together.
 
 Two things it does so you never end up with stray copies running:

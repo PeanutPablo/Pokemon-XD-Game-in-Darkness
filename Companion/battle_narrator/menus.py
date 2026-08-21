@@ -87,7 +87,7 @@ def title_for_layout(layout):
 
 @dataclass(frozen=True)
 class TitleScreenFocus:
-    label: str = f"Title screen. {VANILLA_TITLE}. Press A to start."
+    label: str = f"{VANILLA_TITLE}. Press A to start."
 
 
 @dataclass(frozen=True)
@@ -621,8 +621,7 @@ class ProductionMenuReader:
                         "TITLE could not derive the ability layout, "
                         "naming the vanilla game: %s", problem)
             self._title_label = (
-                f"Title screen. {title_for_layout(layout)}. "
-                f"Press A to start.")
+                f"{title_for_layout(layout)}. Press A to start.")
         return self._title_label
 
     def bag_number_focus(self, node):

@@ -182,7 +182,7 @@ launcher, the interpreter and the sounds gone.
 
 It cost a real session here on 2026-08-20: a rebuild into a folder that
 still had a companion running in it removed everything it could, and the
-next launch did nothing at all because `Access Layer.cmd` was one
+next launch did nothing at all because `Play.cmd` was one
 of the casualties.
 
 Without this check the failure reads as "The Python environment is
