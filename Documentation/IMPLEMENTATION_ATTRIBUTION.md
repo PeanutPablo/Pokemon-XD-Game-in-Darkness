@@ -3720,3 +3720,34 @@ Cipher lab.
 Committed by Claude at the owner's instruction, with the suite green at its
 known baseline. Not live-tested: whether the announcement fires on a real
 in-room drop, and only then, is an open live question.
+
+## 2026-08-20 — Codex: memory-card Yes/No was never spoken
+
+**Recorded by Claude, not signed by Codex**, on the same terms as the
+2026-08-19 entry above: the project owner states Codex is instructed to
+sign each change, none accompanied this one, and none is written on its
+behalf.
+
+**It is also mis-committed.** The change landed inside `e8b0fc0`, whose
+message describes only Claude's installation-protection work and does not
+mention `menus.py` at all. Codex was editing the tree while that commit
+was being prepared and `git add -A` swept it in. The history is not
+rewritten for this — it is already pushed, and correcting the record
+forward is worth more than a tidy log. Anyone reading `e8b0fc0` and
+wondering why it touches the title-screen menus should read this instead.
+
+What the change does: `ProductionMenuReader` treated an informational
+GSmsg task as owning focus even when an interactive choice was open behind
+it. Memory-card prompts keep that task alive while the reusable Yes/No
+widget is up, so the notification won the focus race permanently and the
+cursor was masked — meaning **Yes/No and every cursor movement went
+unspoken**, on a prompt the player has to answer to get into the game.
+
+An active choice now takes focus over the notification behind it:
+`interactive_confirmation` is true when either the new-game confirmation
+node or the Yes/No node is present, and the notification focus is skipped
+entirely in that case. One test,
+`test_memory_card_yes_no_takes_focus_over_its_notification`.
+
+Not live-tested from a release. It is unit-covered and the suite is green
+at its known baseline.
