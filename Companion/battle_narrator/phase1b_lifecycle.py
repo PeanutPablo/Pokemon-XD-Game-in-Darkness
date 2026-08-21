@@ -291,7 +291,7 @@ class LifecycleController:
         LZSS header reads `7f 00 53 53` instead of `4c 5a 53 53`, so
         `parse_fsys` -- which decompresses every entry eagerly -- raised, and
         `PdaCatalog` turned that into a `LocalDataError`. Nothing caught it
-        between here and `main`, whose handler logs, says "Battle narrator
+        between here and `main`, whose handler logs, says "Access layer
         stopped after an error." and exits 1. Observed three times in 61
         seconds: the narrator attached, verified the disc, announced itself,
         hit the PDA and died about a second later, every time.
@@ -776,10 +776,10 @@ class LifecycleController:
         if not self.disconnection_announced:
             self.emit(
                 SpeechEventClass.LIFECYCLE,
-                "Battle narrator disconnected.",
+                "Access layer disconnected.",
                 deduplicate=True,
             )
-            self.logger.info("Battle narrator disconnected.")
+            self.logger.info("Access layer disconnected.")
             self.disconnection_announced = True
         self.connection_announced = False
         self.ready_announced = False
@@ -852,10 +852,10 @@ class LifecycleController:
             if not self.connection_announced:
                 self.emit(
                     SpeechEventClass.LIFECYCLE,
-                    "Battle narrator connected.",
+                    "Access layer connected.",
                     deduplicate=True,
                 )
-                self.logger.info("Battle narrator connected.")
+                self.logger.info("Access layer connected.")
                 self.connection_announced = True
                 self.disconnection_announced = False
             self.menu_reader = self._build(self.menu_factory, "menu")
@@ -991,10 +991,10 @@ class LifecycleController:
             if not self.ready_announced:
                 self.emit(
                     SpeechEventClass.LIFECYCLE,
-                    "Battle narration ready.",
+                    "Access layer ready.",
                     deduplicate=True,
                 )
-                self.logger.info("Battle narration ready.")
+                self.logger.info("Access layer ready.")
                 self.ready_announced = True
             self.transition(
                 LifecycleState.ACTIVE, "GSmsg initialized"
@@ -1199,7 +1199,7 @@ class LifecycleController:
                 LifecycleState.SHUTDOWN,
                 "clean keyboard interruption",
             )
-            self.logger.info("Battle narrator stopped.")
+            self.logger.info("Access layer stopped.")
 
 
 

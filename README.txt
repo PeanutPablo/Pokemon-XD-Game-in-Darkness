@@ -289,7 +289,7 @@ Nothing is spoken
   Check that NVDA is running, and that Dolphin is the focused
   window. The companion starts speaking once a game is loaded.
 
-"Battle narrator stopped after an error"
+"Access layer stopped after an error"
   Usually missing game data. Run Setup.cmd again.
 
 Everything is said twice

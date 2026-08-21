@@ -333,7 +333,7 @@ class LifecycleTests(ControllerHarness, unittest.TestCase):
         self.assertEqual(controller.state, LifecycleState.ACTIVE)
         self.assertEqual(
             speaker.spoken,
-            ["Battle narrator connected.", "Battle narration ready."],
+            ["Access layer connected.", "Access layer ready."],
         )
 
     def test_capacity_zero_waits_quietly_then_activates(self):
@@ -345,7 +345,7 @@ class LifecycleTests(ControllerHarness, unittest.TestCase):
         self.assertEqual(controller.state, LifecycleState.GSMSG_WAITING)
         controller.step()
         self.assertEqual(controller.state, LifecycleState.ACTIVE)
-        self.assertEqual(speaker.spoken.count("Battle narration ready."), 1)
+        self.assertEqual(speaker.spoken.count("Access layer ready."), 1)
 
     def test_battle_end_and_later_reinitialization_clear_state(self):
         first = FakeNarrator([GSmsgUnavailable("battle ended")])
@@ -363,7 +363,7 @@ class LifecycleTests(ControllerHarness, unittest.TestCase):
         controller.step()
         self.assertIs(controller.narrator, second)
         self.assertNotIn("stale signature", second.samples - {"stale signature"})
-        self.assertEqual(speaker.spoken.count("Battle narration ready."), 1)
+        self.assertEqual(speaker.spoken.count("Access layer ready."), 1)
 
     def test_temporary_wait_read_failure_recovers(self):
         controller, _ = self.controller(
@@ -387,7 +387,7 @@ class LifecycleTests(ControllerHarness, unittest.TestCase):
         controller.step()
         controller.step()
         self.assertEqual(
-            speaker.spoken.count("Battle narrator disconnected."), 1
+            speaker.spoken.count("Access layer disconnected."), 1
         )
 
     def test_reconnect_announces_new_connection_once(self):
@@ -404,10 +404,10 @@ class LifecycleTests(ControllerHarness, unittest.TestCase):
         connection.present = True
         controller.step()
         self.assertEqual(
-            speaker.spoken.count("Battle narrator connected."), 2
+            speaker.spoken.count("Access layer connected."), 2
         )
         self.assertEqual(
-            speaker.spoken.count("Battle narrator disconnected."), 1
+            speaker.spoken.count("Access layer disconnected."), 1
         )
 
     def test_unsupported_profile_is_conclusive(self):
@@ -545,7 +545,7 @@ class OptionalReaderFailureTests(unittest.TestCase):
     Live-caught 2026-08-12: `pda_menu.fsys` holds an entry whose LZSS header
     reads `7f 00 53 53`, `PdaCatalog` raised `LocalDataError`, nothing caught
     it before `main`, and the narrator exited 1 about a second after
-    announcing itself -- three times in 61 seconds. Battle narration, menus,
+    announcing itself -- three times in 61 seconds. Access layer speech, menus,
     dialogue and navigation were all lost to the PDA."""
 
     def _controller(self, **factories):

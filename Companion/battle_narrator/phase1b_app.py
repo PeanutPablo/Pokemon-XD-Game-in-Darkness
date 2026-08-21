@@ -174,7 +174,7 @@ def party_slot_hotkeys_value(value):
 
 def parser():
     value = argparse.ArgumentParser(
-        description="Persistent read-only Pokémon XD battle narrator"
+        description="Persistent read-only Pokémon XD access layer"
     )
     value.add_argument(
         "--dialogue-debug",
@@ -1728,14 +1728,14 @@ def run(argv=None, backend=dme, speech_backend=tolk):
         logger.error(str(exc))
         if speaker.loaded:
             speaker.speak(
-                "Battle narrator stopped after an error.", interrupt=False
+                "Access layer stopped after an error.", interrupt=False
             )
         code = 1
     except Exception:
-        logger.exception("Battle narrator stopped after an unexpected error.")
+        logger.exception("Access layer stopped after an unexpected error.")
         if speaker.loaded:
             speaker.speak(
-                "Battle narrator stopped after an error.", interrupt=False
+                "Access layer stopped after an error.", interrupt=False
             )
         code = 1
     finally:
