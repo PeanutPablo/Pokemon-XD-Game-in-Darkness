@@ -13,6 +13,25 @@ from .phase1b_tasks import GSmsgUnavailable, MalformedGSmsg
 from .speech import SpeechEventClass
 
 
+WAIT_FAILURE_DISCONNECT_SECONDS = 5.0
+"""How long every read may fail before the connection is called dead,
+whatever the backend says about it.
+
+`is_readable()` is the backend's opinion, and after Dolphin exits it keeps
+answering True: the hook is stale, not closed. So the wait-state handler
+below treated a closed emulator as a transient blip and retried twice a
+second forever -- which is why EXIT_AFTER_ABSENT_SECONDS never fired in
+practice. Observed live 2026-08-20: Dolphin closed at 23:16, and at 23:22
+the companion was still logging "Temporary wait-state read failure:
+GameCube disc header: read failed at 0x80000000" every 0.5s, having never
+once reached DOLPHIN_ABSENT or DISCONNECTED.
+
+Sustained total failure is the evidence; the backend's opinion is not.
+Five seconds is far longer than any real stall at this point -- these
+reads are of fixed addresses that either resolve or do not -- and short
+enough that the absence timer starts almost as soon as the emulator
+closes."""
+
 EXIT_AFTER_ABSENT_SECONDS = 60.0
 """Stop the companion when Dolphin has been gone this long.
 
@@ -105,6 +124,9 @@ class LifecycleController:
         self.active_interval = active_interval
         self.exit_after_absent_seconds = exit_after_absent_seconds
         self.clock = clock
+        self._wait_failure_since = None
+        """When wait-state reads began failing continuously, or None while
+        any of them is succeeding. See WAIT_FAILURE_DISCONNECT_SECONDS."""
         self._absent_since = None
         """When Dolphin was first found missing in the current run of
         absence, or None while it is present. Reset on every successful
@@ -944,7 +966,22 @@ class LifecycleController:
                 raise
             except MemoryError as exc:
                 if not self.connection.is_readable():
+                    self._wait_failure_since = None
                     self.disconnect(str(exc))
+                    return
+                now = self.clock()
+                if self._wait_failure_since is None:
+                    self._wait_failure_since = now
+                elif now - self._wait_failure_since >= WAIT_FAILURE_DISCONNECT_SECONDS:
+                    # Every read has failed for long enough that the hook
+                    # is dead whatever is_readable() claims. See
+                    # WAIT_FAILURE_DISCONNECT_SECONDS.
+                    self._wait_failure_since = None
+                    self.logger.info(
+                        "LIFECYCLE treating a stale hook as disconnected "
+                        "after %.0fs of failed reads: %s",
+                        WAIT_FAILURE_DISCONNECT_SECONDS, exc)
+                    self.disconnect("Dolphin stopped responding")
                     return
                 self.logger.debug(
                     "Temporary wait-state read failure: %s", exc

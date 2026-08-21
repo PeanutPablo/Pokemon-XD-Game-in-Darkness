@@ -677,3 +677,53 @@ class DolphinAbsenceShutdownTests(ControllerHarness, unittest.TestCase):
         clock.advance(10_000.0)
         controller.step()
         self.assertEqual(controller.state, LifecycleState.DOLPHIN_ABSENT)
+
+
+class StaleHookTests(ControllerHarness, unittest.TestCase):
+    """A closed Dolphin that the backend still calls readable.
+
+    Observed live 2026-08-20 and the reason EXIT_AFTER_ABSENT_SECONDS never
+    fired in practice. dolphin-memory-engine keeps answering True from
+    is_readable() after Dolphin exits -- the hook is stale, not closed --
+    so every read failed, the wait-state handler called each one transient,
+    and the companion retried twice a second for six minutes without ever
+    reaching DOLPHIN_ABSENT or DISCONNECTED. The absence timer only runs in
+    those states, so it never got a chance to.
+
+    Sustained total failure is the evidence. The backend's opinion is not."""
+
+    def stale(self):
+        """A connection that hooks fine and then fails every read while
+        insisting it is still readable."""
+        connection = FakeConnection(present=True)
+        connection.readable = True
+
+        def verify():
+            raise MemoryError("GameCube disc header: read failed at 0x80000000")
+
+        connection.verify_profile = verify
+        return connection
+
+    def test_a_stale_hook_eventually_disconnects(self):
+        clock = FakeClock()
+        controller, _ = self.controller(
+            self.stale(), [FakeTasks(["valid"])], clock=clock)
+        controller.step()
+        self.assertNotEqual(controller.state, LifecycleState.DISCONNECTED)
+        clock.advance(6.0)
+        controller.step()
+        controller.step()
+        self.assertIn(
+            controller.state,
+            (LifecycleState.DISCONNECTED, LifecycleState.DOLPHIN_ABSENT,
+             LifecycleState.ATTACHING, LifecycleState.PROFILE_PENDING))
+
+    def test_a_brief_read_failure_is_still_treated_as_transient(self):
+        """Real stalls happen. Five seconds of them do not."""
+        clock = FakeClock()
+        controller, _ = self.controller(
+            self.stale(), [FakeTasks(["valid"])], clock=clock)
+        controller.step()
+        clock.advance(1.0)
+        controller.step()
+        self.assertNotEqual(controller.state, LifecycleState.DISCONNECTED)
