@@ -22,7 +22,8 @@ disagree with the door the player had just walked through.
 
 Read-only: one floor-ID read per poll, nothing else.
 """
-from .npc_beacons import BOOT_SCREEN_FLOOR_IDS, TITLE_SCREEN_FLOOR_ID
+from .npc_beacons import (
+    BOOT_SCREEN_LABELS, NO_ROOM_FLOOR_ID, TITLE_SCREEN_FLOOR_ID)
 from .speech import SpeechEventClass
 
 
@@ -71,13 +72,20 @@ class RoomChangeReader:
                     SpeechEventClass.ENTITY_NAV, title, deduplicate=False)
                 self.logger.info("TITLE SCREEN %r", title)
             return
-        if floor_id in BOOT_SCREEN_FLOOR_IDS:
-            # Publisher logos and the pre-map state. Not places, and
-            # naming them talks over the health notice. Recorded as
-            # announced so the first real room is not skipped as
+        if floor_id == NO_ROOM_FLOOR_ID:
+            # Before any map is loaded. Nothing is on screen to name, and
+            # "Room 0" talked over the health notice. Recorded as
+            # announced so the first real screen is not skipped as
             # unchanged.
+            #
+            # The publisher logos are NOT suppressed here. They were, and
+            # the project owner asked for them back: a blind player
+            # sitting through two silent splash screens has no way to tell
+            # them from a game that has hung. Their duplicate "Map:" line
+            # stays suppressed -- saying each of them twice was the actual
+            # complaint.
             return
-        name = self.room_names.get(floor_id)
+        name = BOOT_SCREEN_LABELS.get(floor_id) or self.room_names.get(floor_id)
         if not name:
             # An XG-added or otherwise unmapped room. Say something true and
             # useful rather than nothing -- the player still needs to know

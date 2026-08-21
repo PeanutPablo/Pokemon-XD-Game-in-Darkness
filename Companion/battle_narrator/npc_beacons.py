@@ -920,6 +920,23 @@ name is replaced by something useful. The map line is suppressed for all
 of them: it duplicates the room announcement even in ordinary rooms, and
 on these screens it duplicates it with a word that means nothing."""
 
+BOOT_SCREEN_LABELS = {
+    0x399: "Pokemon logo",
+    0x39A: "Genius Sonority logo",
+}
+"""Accessibility-owned labels for the two splash screens.
+
+The game's own room names are "pokemon logo" and "genius logo", which are
+what these said until the project owner asked for the studio's full name.
+"Genius Sonority" is the developer of Pokemon XD -- it is an expansion of
+the abbreviation the room name carries, not a name invented for a screen
+that had none, and it is the same latitude the audit brief already permits
+for object-class labels like "Item box".
+
+Kept as an explicit table rather than by title-casing the room name, so it
+is obvious that these two strings are this project's wording and not the
+game's. Any screen not listed here still speaks its own room name."""
+
 NO_ROOM_FLOOR_ID = 0
 """Floor 0 is not a room. It is what the floor ID reads as before any map
 is loaded -- the health-and-safety notice and the title screen.

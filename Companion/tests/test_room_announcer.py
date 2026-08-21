@@ -221,13 +221,38 @@ class TitleScreenTests(unittest.TestCase):
         reader.poll_once()
         self.assertEqual(speech.calls, [])
 
-    def test_the_logo_screens_are_silent(self):
-        for floor_id, name in ((0x399, "pokemon logo"), (0x39A, "genius logo")):
+    def test_the_logo_screens_are_announced_once_each(self):
+        """Restored at the project owner's request after being silenced.
+
+        Two silent splash screens are indistinguishable from a game that
+        has hung, which is a bad thing to meet before anything has spoken.
+        The complaint was never that they spoke -- it was that they spoke
+        TWICE, once from here and once as "Map: pokemon logo." That
+        duplicate is suppressed in the map announcer instead."""
+        expected = {0x399: "Pokemon logo.", 0x39A: "Genius Sonority logo."}
+        for floor_id, said in expected.items():
             speech = Speech()
             reader = RoomChangeReader(
-                FloorSource(floor_id), {floor_id: name}, speech, _logger())
+                FloorSource(floor_id), {floor_id: "ignored"}, speech, _logger())
             reader.poll_once()
-            self.assertEqual(speech.calls, [], f"{name} was announced")
+            self.assertEqual(speech.calls, [said])
+
+    def test_the_studio_name_is_ours_and_overrides_the_room_name(self):
+        """The game calls it "genius logo". "Genius Sonority" expands the
+        abbreviation to the studio that made XD -- this project's wording,
+        held in an explicit table so that is obvious."""
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x39A), {0x39A: "genius logo"}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, ["Genius Sonority logo."])
+
+    def test_an_ordinary_room_still_uses_the_games_own_name(self):
+        speech = Speech()
+        reader = RoomChangeReader(
+            FloorSource(0x2A), {0x2A: "Pyrite Town"}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, ["Pyrite Town."])
 
     def test_a_real_room_after_the_title_still_announces(self):
         floor = FloorSource(0x384)
