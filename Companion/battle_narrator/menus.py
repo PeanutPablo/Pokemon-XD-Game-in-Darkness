@@ -1373,8 +1373,20 @@ class ProductionMenuReader:
                  ) == self.profile.new_game_confirmation_parent_ids),
                 None,
             )
-            focus = self.progress_notification_focus()
-            if focus is None:
+            # An active choice owns focus over the informational GSmsg task
+            # behind it.  Memory-card prompts keep that task alive while the
+            # reusable Yes/No widget is open; choosing the notification first
+            # forever masks the cursor, so Yes/No and cursor changes are never
+            # spoken.
+            interactive_confirmation = (
+                new_game_confirmation_node is not None
+                or yes_no_node is not None
+            )
+            focus = (
+                None if interactive_confirmation
+                else self.progress_notification_focus()
+            )
+            if focus is None and not interactive_confirmation:
                 focus = self.title_notification_focus(title_status)
             if focus is not None:
                 pass
@@ -1638,7 +1650,6 @@ class ProductionMenuReader:
             SpeechEventClass.WARNING, GAME_DATA_MISMATCH_ADVICE,
             interrupt=False,
         )
-
 
 
 

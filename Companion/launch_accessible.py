@@ -48,7 +48,74 @@ def fail(message):
     return 1
 
 
+ESSENTIAL_RELEASE_FILES = (
+    "Setup.cmd",
+    "Companion/run_accessible_pokemon_xd.py",
+    "Companion/battle_narrator/phase1b_app.py",
+    "Runtime/python.exe",
+    "sounds",
+)
+"""What a release cannot run without. Checked before anything else.
+
+A partly-deleted installation is a real state, not a hypothetical: it
+happens whenever something tries to replace this folder while the
+companion is running. Windows refuses to remove the open log file, the
+delete stops halfway, and what is left is a folder that still LOOKS like
+an install -- same name, same place, `Companion\\logs` present -- with the
+launcher, the interpreter and the sounds gone.
+
+It cost a real session here on 2026-08-20: a rebuild into a folder that
+still had a companion running in it removed everything it could, and the
+next launch did nothing at all because `Launch Accessible XD.cmd` was one
+of the casualties.
+
+Without this check the failure reads as "The Python environment is
+missing. Run Setup.cmd to build it." -- advice that cannot work, because
+Setup.cmd was deleted too, and that sends the player looking for a
+problem with their machine instead of re-extracting the download."""
+
+
+def missing_essentials():
+    """Which required parts of a release are absent, in listed order.
+
+    Only meaningful for a release. A source checkout has no `Runtime/` and
+    no `VERSION`, and is not broken for lacking them, so the caller gates
+    on `VERSION` before believing this."""
+    return [
+        name for name in ESSENTIAL_RELEASE_FILES
+        if not (RELEASE / name).exists()
+    ]
+
+
+def check_installation_intact():
+    """Refuse, and say what is actually wrong, if files have gone missing.
+
+    `VERSION` is the discriminator: the builder writes it into every
+    release and a checkout has none, so its presence means this is a
+    release and the parts listed above should all be here."""
+    if not (RELEASE / "VERSION").is_file():
+        return None
+    missing = missing_essentials()
+    if not missing:
+        return None
+    return fail(
+        "This copy is incomplete -- some of its files are missing:\n"
+        + "".join(f"    {name}\n" for name in missing)
+        + "\n"
+        "That usually means something replaced or deleted part of this\n"
+        "folder while the companion was running, so the delete stopped\n"
+        "halfway.\n"
+        "\n"
+        "Re-extract the download to a fresh folder and run Setup.cmd there.\n"
+        "Do not extract on top of this one -- delete it first, and make\n"
+        "sure Dolphin and the companion are both closed before you do.")
+
+
 def main():
+    broken = check_installation_intact()
+    if broken is not None:
+        return broken
+
     settings = (
         json.loads(SETTINGS.read_text(encoding="utf-8"))
         if SETTINGS.is_file() else {}

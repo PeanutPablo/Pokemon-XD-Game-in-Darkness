@@ -45,6 +45,29 @@ if (-not $resolvedStage.StartsWith($resolvedReleaseRoot + [IO.Path]::DirectorySe
     throw 'Refusing to use a staging path outside the release directory.'
 }
 if (Test-Path -LiteralPath $stage) {
+    # Refuse BEFORE deleting anything if a companion is running out of the
+    # folder about to be cleared.
+    #
+    # Remove-Item deletes what it can and then throws on the first file it
+    # cannot -- which, for a running companion, is its open log. What
+    # survives is a folder that still looks like an install: same name,
+    # Companion\logs present, and the launcher, the interpreter and the
+    # sounds all gone. On 2026-08-20 that destroyed a copy the project
+    # owner was actively testing from, and the next launch did nothing at
+    # all because Launch Accessible XD.cmd was one of the casualties.
+    #
+    # Checked by process path rather than by trying and catching, because
+    # by the time the exception arrives the damage is already done.
+    $running = @(Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($resolvedStage, [StringComparison]::OrdinalIgnoreCase) })
+    if ($running) {
+        $detail = ($running | ForEach-Object { "  PID $($_.Id)  $($_.Path)" }) -join [Environment]::NewLine
+        throw ("Something is still running inside the staging folder, so " +
+            "clearing it would delete everything except the files it has " +
+            "open and leave a half-installed copy behind:" +
+            [Environment]::NewLine + $detail + [Environment]::NewLine +
+            "Close it first, or build with -OutputRoot pointing somewhere else.")
+    }
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
 if (Test-Path -LiteralPath $archive) {

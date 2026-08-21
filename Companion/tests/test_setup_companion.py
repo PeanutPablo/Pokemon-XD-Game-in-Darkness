@@ -350,5 +350,80 @@ class InterpreterSelectionTests(unittest.TestCase):
                              self.root / "Runtime" / "python.exe")
 
 
+class DamagedInstallationTests(unittest.TestCase):
+    """A half-deleted release must say so, not blame the player's setup.
+
+    This state is real. It happens whenever something replaces this folder
+    while the companion is running: Windows refuses to remove the open log,
+    the delete stops partway, and what survives still looks like an install
+    -- same name, Companion\logs present -- with the launcher, the
+    interpreter and the sounds gone. It destroyed a copy under test on
+    2026-08-20.
+
+    Without the check the player is told "The Python environment is
+    missing. Run Setup.cmd to build it.", which cannot work: Setup.cmd was
+    deleted too. That sends them hunting for a fault in their machine
+    instead of re-extracting the download."""
+
+    def setUp(self):
+        import launch_accessible
+        self.launcher = launch_accessible
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._original = launch_accessible.RELEASE
+        launch_accessible.RELEASE = self.root
+        self.addCleanup(setattr, launch_accessible, "RELEASE", self._original)
+        self.addCleanup(self._tmp.cleanup)
+
+    def complete_release(self):
+        (self.root / "VERSION").write_text("0.1.0")
+        for name in self.launcher.ESSENTIAL_RELEASE_FILES:
+            path = self.root / name
+            if path.suffix:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"")
+            else:
+                path.mkdir(parents=True, exist_ok=True)
+
+    def test_a_complete_release_passes(self):
+        self.complete_release()
+        self.assertEqual(self.launcher.missing_essentials(), [])
+        self.assertIsNone(self.launcher.check_installation_intact())
+
+    def test_a_gutted_release_is_refused_and_names_what_is_gone(self):
+        (self.root / "VERSION").write_text("0.1.0")
+        (self.root / "Companion" / "logs").mkdir(parents=True)
+        missing = self.launcher.missing_essentials()
+        self.assertIn("Setup.cmd", missing)
+        self.assertIn("Runtime/python.exe", missing)
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.launcher.check_installation_intact(), 1)
+
+    def test_one_missing_file_is_enough(self):
+        self.complete_release()
+        (self.root / "Runtime" / "python.exe").unlink()
+        self.assertEqual(
+            self.launcher.missing_essentials(), ["Runtime/python.exe"])
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.launcher.check_installation_intact(), 1)
+
+    def test_a_source_checkout_is_not_called_broken(self):
+        """No VERSION and no Runtime is a checkout, not damage. VERSION is
+        the discriminator -- the builder writes it into every release."""
+        (self.root / "Companion").mkdir()
+        self.assertIsNone(self.launcher.check_installation_intact())
+
+    def test_the_message_tells_them_to_re_extract_not_to_run_setup(self):
+        """Setup.cmd is itself one of the casualties."""
+        (self.root / "VERSION").write_text("0.1.0")
+        import io, contextlib
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            self.launcher.check_installation_intact()
+        said = captured.getvalue()
+        self.assertIn("Re-extract", said)
+        self.assertIn("fresh folder", said)
+
+
 if __name__ == "__main__":
     unittest.main()

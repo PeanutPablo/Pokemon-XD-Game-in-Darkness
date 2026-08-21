@@ -1169,6 +1169,37 @@ class TitleMenuTests(unittest.TestCase):
             ["The Memory Card in Slot A has been read!"],
         )
 
+    def test_memory_card_yes_no_takes_focus_over_its_notification(self):
+        f = Fixture()
+        choices = f.work + 0x100
+        f.head(f.work)
+        f.node(f.work, 17, next_pointer=choices)
+        f.node(
+            choices, f.profile.new_game_confirmation_menu_id, cursor=1)
+        f.backend.put(
+            f.profile.title_status_address,
+            be32(f.profile.title_notification_statuses[0]),
+        )
+        manager = 0x80008000
+        tasks = 0x80008100
+        f.backend.put(f.profile.manager_root, be32(manager))
+        f.backend.put(manager + f.profile.manager_tasks_offset, be32(tasks))
+        f.backend.put(tasks + f.profile.task_state_offset, bytes([1]))
+        f.backend.put(tasks + f.profile.task_id_offset, be32(131))
+        prompt = (
+            "There is no POKeMON XD save file on the Memory Card in Slot A. "
+            "Would you like to create a new save file?"
+        )
+        f.reader.title_messages = {131: prompt}
+
+        f.reader.poll_once()
+        self.assertEqual(f.events.values[-1][1], f"{prompt} No")
+
+        f.node(
+            choices, f.profile.new_game_confirmation_menu_id, cursor=0)
+        f.reader.poll_once()
+        self.assertEqual(f.events.values[-1][1], "Yes")
+
     def test_new_game_confirmation_speaks_prompt_and_no(self):
         f = Fixture()
         f.backend.put(
@@ -2121,7 +2152,6 @@ class ProgressNotificationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 
 
 
