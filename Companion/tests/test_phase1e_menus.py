@@ -1102,7 +1102,10 @@ class TitleMenuTests(unittest.TestCase):
         f.reader.poll_once()
         f.reader.poll_once()
         self.assertEqual(len(f.events.values), 1)
-        self.assertIn("Warning: Health and Safety", f.events.values[0][1])
+        # Names the screen first, then reads it, then says what to do.
+        said = f.events.values[0][1]
+        self.assertIn("Health and safety notice", said)
+        self.assertIn("Press any button to continue", said)
 
     def test_press_start_screen_announces_once_when_visible(self):
         f = Fixture()
@@ -1114,7 +1117,7 @@ class TitleMenuTests(unittest.TestCase):
         self.assertEqual(len(f.events.values), 1)
         self.assertEqual(
             f.events.values[0][1],
-            "Pokemon XD: Gale of Darkness. Press A to start.",
+            "Title screen. Pokemon XD: Gale of Darkness. Press A to start.",
         )
 
     def test_press_start_reannounces_after_screen_transition(self):

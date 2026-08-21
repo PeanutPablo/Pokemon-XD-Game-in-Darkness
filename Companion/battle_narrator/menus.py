@@ -87,17 +87,29 @@ def title_for_layout(layout):
 
 @dataclass(frozen=True)
 class TitleScreenFocus:
-    label: str = f"{VANILLA_TITLE}. Press A to start."
+    label: str = f"Title screen. {VANILLA_TITLE}. Press A to start."
 
 
 @dataclass(frozen=True)
 class HealthSafetyFocus:
     label: str = (
-        "Warning: Health and Safety. Before playing, read the Health and "
+        "Health and safety notice. Before playing, read the Health and "
         "Safety Precautions Booklet for important information about your "
         "health and safety. Press any button to continue."
     )
-    """The prompt is part of the label deliberately.
+    """Named, then read, then told what to do -- in that order.
+
+    The screen has no room name, and the two boot screens are the only
+    places where the player has no other way to tell which one they are
+    looking at. So each says what it IS before it says anything else,
+    taking the place of the room announcement that these screens cannot
+    have.
+
+    "Health and safety notice" rather than the old "Warning: Health and
+    Safety", which said the same words twice once the sentence that
+    follows begins "Before playing, read the Health and Safety...".
+
+    The prompt is part of the label deliberately.
 
     This screen waits for input and shows nothing else. Reading the notice
     and stopping leaves a blind player with a correct sentence and no idea
@@ -608,7 +620,9 @@ class ProductionMenuReader:
                     self.logger.debug(
                         "TITLE could not derive the ability layout, "
                         "naming the vanilla game: %s", problem)
-            self._title_label = f"{title_for_layout(layout)}. Press A to start."
+            self._title_label = (
+                f"Title screen. {title_for_layout(layout)}. "
+                f"Press A to start.")
         return self._title_label
 
     def bag_number_focus(self, node):
