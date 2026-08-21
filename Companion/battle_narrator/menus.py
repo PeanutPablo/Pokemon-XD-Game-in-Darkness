@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import re
 
+from .ability_layout import derive_ability_layout
 from .battle_targets import TargetFactsSource, status_panel_hp, target_detail
 from .memory import MemoryError, require_range
 from .resolver import display_case, normalize
@@ -56,9 +57,37 @@ class CommandFocus:
     label: str
 
 
+VANILLA_TITLE = "Pokemon XD: Gale of Darkness"
+XG_TITLE = "Pokemon XG: NeXt Gen"
+
+
+def title_for_layout(layout):
+    """Which game to name on the title screen.
+
+    The disc cannot answer this. XG relabels nothing -- same `GXXE01`,
+    same revision, same internal name "POKeMON XD" -- so a title built
+    from the header would call XG by the wrong name on every boot.
+
+    What DOES differ is the abilities table's shape. XG repacks 106
+    abilities into the space vanilla used for 78 by dropping a four-byte
+    field, taking the record stride from 12 to 8, and
+    `ability_layout.derive_ability_layout` reads that stride out of the
+    game's own code. That derivation is verified end to end: decoding XG's
+    table with it resolves all 101 of its named abilities to the names XG's
+    own documentation lists, and zero of them under vanilla's.
+
+    So this is an inference from a verified signature, not a label the game
+    carries, and it is worded to fail safe: an unreadable or unfamiliar
+    layout falls back to the vanilla title rather than guessing at a hack
+    name. Being told "Pokemon XD" while playing XG is a much smaller wrong
+    than being told "Pokemon XG" while playing anything else."""
+    stride = getattr(layout, "stride", None)
+    return XG_TITLE if stride == 8 else VANILLA_TITLE
+
+
 @dataclass(frozen=True)
 class TitleScreenFocus:
-    label: str = "Pokemon XD: Gale of Darkness. Press A to start."
+    label: str = f"{VANILLA_TITLE}. Press A to start."
 
 
 @dataclass(frozen=True)
@@ -66,8 +95,15 @@ class HealthSafetyFocus:
     label: str = (
         "Warning: Health and Safety. Before playing, read the Health and "
         "Safety Precautions Booklet for important information about your "
-        "health and safety."
+        "health and safety. Press any button to continue."
     )
+    """The prompt is part of the label deliberately.
+
+    This screen waits for input and shows nothing else. Reading the notice
+    and stopping leaves a blind player with a correct sentence and no idea
+    that anything is expected of them, on the very first screen of the
+    game -- which is the worst possible place to be stuck wondering whether
+    the companion has finished talking or the game has frozen."""
 
 
 @dataclass(frozen=True)
@@ -244,6 +280,10 @@ class ProductionMenuReader:
         self.move_data = move_data
         self.speech = speech
         self.logger = logger
+        self._title_label = None
+        """Cached title-screen line, naming whichever game is running.
+        Derived on first use from the abilities table's shape; see
+        `title_label`."""
         self.title_messages = title_messages or {}
         self.shop_messages = shop_messages
         self.item_name_resolver = item_name_resolver
@@ -547,6 +587,29 @@ class ProductionMenuReader:
                 f"Bag-action message {message_id} did not render"
             )
         return CommandFocus(node.address, node.menu_id, logical, label)
+
+    def title_label(self):
+        """The title-screen line, naming whichever game is running.
+
+        Derived once and remembered: it cannot change while a game is
+        booted, and the derivation reads instructions out of the game's
+        code, which is not work to repeat on every poll of a screen the
+        player may sit on for a while.
+
+        A failure here costs the distinction, not the announcement. If the
+        layout cannot be read the vanilla title is used, because a title
+        screen that says nothing is worse than one that says XD on XG."""
+        if self._title_label is None:
+            layout = None
+            try:
+                layout = derive_ability_layout(self.memory, self.profile)
+            except Exception as problem:
+                if self.logger is not None:
+                    self.logger.debug(
+                        "TITLE could not derive the ability layout, "
+                        "naming the vanilla game: %s", problem)
+            self._title_label = f"{title_for_layout(layout)}. Press A to start."
+        return self._title_label
 
     def bag_number_focus(self, node):
         value = self.memory.u32(
@@ -1492,7 +1555,7 @@ class ProductionMenuReader:
                 ) == 1
                 and not self.title_message_active(title_status)
             ):
-                focus = TitleScreenFocus()
+                focus = TitleScreenFocus(self.title_label())
             elif title_option_node is not None:
                 focus = self.title_option_focus(title_option_node)
             elif title_node is not None:

@@ -22,6 +22,7 @@ disagree with the door the player had just walked through.
 
 Read-only: one floor-ID read per poll, nothing else.
 """
+from .npc_beacons import NO_ROOM_FLOOR_ID
 from .speech import SpeechEventClass
 
 
@@ -48,6 +49,12 @@ class RoomChangeReader:
         if floor_id is None or floor_id == self.announced_floor_id:
             return
         self.announced_floor_id = floor_id
+        if floor_id == NO_ROOM_FLOOR_ID:
+            # The boot screens, not a room. Saying "Room 0" here talks over
+            # the health-and-safety notice with a name for a place that
+            # does not exist. Recorded as announced so the first real room
+            # is not then skipped as unchanged.
+            return
         name = self.room_names.get(floor_id)
         if not name:
             # An XG-added or otherwise unmapped room. Say something true and

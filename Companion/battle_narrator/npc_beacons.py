@@ -897,6 +897,16 @@ class SpatialWavePlayer:
         self._channels = []
 
 
+NO_ROOM_FLOOR_ID = 0
+"""Floor 0 is not a room. It is what the floor ID reads as before any map
+is loaded -- the health-and-safety notice and the title screen.
+
+Announcing it produced "Map: Map 0." and "Room 0." over the top of the
+warning the player is actually being read, on the first screen of the
+game. Both are meaningless: there is no room, so there is nothing to
+name."""
+
+
 class NPCSoundReader:
     def __init__(
         self,
@@ -999,6 +1009,11 @@ class NPCSoundReader:
             return
         floor_id = self.source.current_floor_id()
         if floor_id == self.announced_floor_id:
+            return
+        if floor_id == NO_ROOM_FLOOR_ID:
+            # Remembered, not just skipped, so entering the first real room
+            # still announces rather than being swallowed as "no change".
+            self.announced_floor_id = floor_id
             return
         self.announced_floor_id = floor_id
         if self.speech is not None:

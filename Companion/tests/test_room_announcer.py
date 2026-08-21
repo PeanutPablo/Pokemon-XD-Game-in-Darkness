@@ -139,3 +139,40 @@ class RoomChangeReaderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BootScreenSilenceTests(unittest.TestCase):
+    """Floor 0 is the boot screens, not a room.
+
+    Announcing it produced "Map: Map 0." and "Room 0." on top of the
+    health-and-safety notice the player is being read, on the very first
+    screen of the game. There is no room there, so there is nothing to
+    name -- and the noise arrives at the one moment a new player is still
+    working out what this thing does."""
+
+    def test_floor_zero_says_nothing(self):
+        speech = Speech()
+        reader = RoomChangeReader(FloorSource(0), {}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, [])
+
+    def test_an_unmapped_real_room_still_speaks(self):
+        """The numeric fallback is still right for a genuine room whose
+        name is missing -- the player needs to know they changed rooms."""
+        speech = Speech()
+        reader = RoomChangeReader(FloorSource(0x2A), {}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, ["Room 42."])
+
+    def test_the_first_real_room_after_boot_is_not_swallowed(self):
+        """Floor 0 is recorded as announced, so the room entered after it
+        must not be skipped as an unchanged floor."""
+        floor = FloorSource(0)
+        speech = Speech()
+        reader = RoomChangeReader(
+            floor, {0x2A: "Pyrite Town"}, speech, _logger())
+        reader.poll_once()
+        self.assertEqual(speech.calls, [])
+        floor.floor_id = 0x2A
+        reader.poll_once()
+        self.assertEqual(speech.calls, ["Pyrite Town."])
